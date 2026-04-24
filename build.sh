@@ -4,4 +4,5 @@
 # generates templates and copies them to the user settings directory.
 make && \
 bin/shoji -g && \
+mkdir -p $HOME/config/settings/shoji/templates
 cp -a generated/* ~/config/settings/shoji/templates/
