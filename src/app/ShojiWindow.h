@@ -20,7 +20,7 @@ class BButton;
 class ShojiWindow : public BWindow
 {
     public:
-                            ShojiWindow(entry_ref *ref);
+                            ShojiWindow(const entry_ref *ref);
         virtual			    ~ShojiWindow();
 
         virtual void        MessageReceived(BMessage* message);

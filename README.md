@@ -33,5 +33,9 @@ This pairing expresses the core functionality of this SEN Labs project: the abil
 
 Supported types: strings, booleans, integers (8 to 64 bit, signed and unsigned), float, double and time (`YYYY-MM-DD HH:MM:SS`). Other types are shown as read-only.
 
+Templates that come with Shoji: `application/x-person` (a contact) and `entity/x-vnd.sen-labs.entity.book` (a book: title, authors, ISBN, pages, publisher, date, language and subjects; the cover is the
+thumbnail on the stripe, e.g. from the book enricher BERT of SENSEI). `./build.sh` generates them (`bin/shoji -g`) into `~/config/settings/shoji/templates/<MIME type>/template.view`. A template is a view whose controls are
+named after the attributes; a new one is a class in `src/templates/<MIME type>/` and an entry in the table in `ShojiApp.cpp`.
+
 Building needs the SEN headers (`sento/install.sh`) for the stripe of the About windows (`<sen/SenStripeDialog.h>`).
 

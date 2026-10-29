@@ -7,17 +7,38 @@
 #include <Directory.h>
 #include <Entry.h>
 #include <Errors.h>
+#include <File.h>
 #include <Path.h>
 #include <cstdio>
-#include <cstdio>
+#include <cstring>
 
 #include "ShojiApp.h"
 #include "ShojiWindow.h"
 
 // custom template views
 #include "../templates/application/x-person/ContactView.h"
+#include "../templates/entity/x-vnd.sen-labs.entity.book/BookView.h"
 
 const char* kApplicationSignature = "application/x-vnd.sen-labs.Shoji";
+
+namespace {
+
+// the templates that Shoji brings: the MIME type, and the view that is archived as its template
+struct TemplateSpec {
+    const char* mimeType;
+    BView*      (*create)();
+};
+
+BView* CreateContactView() { return new ContactView(); }
+BView* CreateBookView() { return new BookView(); }
+
+const TemplateSpec kTemplates[] = {
+    { "application/x-person", CreateContactView },
+    { "entity/x-vnd.sen-labs.entity.book", CreateBookView },
+};
+
+}   // namespace
+
 
 ShojiApp::ShojiApp() : BApplication(kApplicationSignature)
 {
@@ -31,6 +52,7 @@ int main()
 {
 	ShojiApp* app = new ShojiApp();
     if (app->InitCheck() != B_OK) {
+        delete app;
         return 1;
     }
 	app->Run();
@@ -41,12 +63,12 @@ int main()
 
 void ShojiApp::ArgvReceived(int32 argc, char **argv)
 {
-    if (argc < 1) {
+    if (argc < 2) {
         // todo: show empty splash screen and allow drag&drop
         return;
     }
 
-    if (strncmp(argv[1], "-g", 2) == 0 || strncmp(argv[1], "--generate", 10) == 0) {
+    if (strcmp(argv[1], "-g") == 0 || strcmp(argv[1], "--generate") == 0) {
         printf("generating templates...\n");
         status_t status = GenerateTemplates();
 
@@ -59,12 +81,20 @@ void ShojiApp::ArgvReceived(int32 argc, char **argv)
         return;
     }
 
+    // the files to open: all arguments
     BMessage refsMsg(B_REFS_RECEIVED);
-    BEntry entry(argv[1]);
-    entry_ref ref;
-
-    entry.GetRef(&ref);
-    refsMsg.AddRef("refs", &ref);
+    for (int32 i = 1; i < argc; i++) {
+        BEntry entry(argv[i]);
+        entry_ref ref;
+        status_t status = entry.InitCheck();
+        if (status == B_OK)
+            status = entry.GetRef(&ref);
+        if (status != B_OK) {
+            fprintf(stderr, "cannot open %s: %s\n", argv[i], strerror(status));
+            continue;
+        }
+        refsMsg.AddRef("refs", &ref);
+    }
 
     RefsReceived(&refsMsg);
 }
@@ -72,19 +102,28 @@ void ShojiApp::ArgvReceived(int32 argc, char **argv)
 void ShojiApp::RefsReceived(BMessage *message)
 {
     entry_ref ref;
+    int32 opened = 0;
 
-    if (message->FindRef("refs", &ref) != B_OK) {
-        BAlert* alert = new BAlert("Error launching SHOI",
+    for (int32 i = 0; message->FindRef("refs", i, &ref) == B_OK; i++) {
+        ShojiWindow* window = new ShojiWindow(&ref);
+        window->Show();
+        opened++;
+    }
+
+    if (opened == 0) {
+        BAlert* alert = new BAlert("Error launching Shoji",
             "Failed to resolve input file.",
             "Oh no.");
         alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
+        alert->Go();
 
-        return;
+        // nothing to show: do not stay around without a window
+        if (CountWindows() == 0)
+            Quit();
     }
-
-    (new ShojiWindow(new entry_ref(ref.device, ref.directory, ref.name)))->Show();
 }
 
+// archives the template views to ./generated/<MIME type>/template.view
 status_t ShojiApp::GenerateTemplates() {
     BPath outPath("./generated");
     status_t result = create_directory(outPath.Path(), B_READ_WRITE);
@@ -92,22 +131,30 @@ status_t ShojiApp::GenerateTemplates() {
         return result;
     }
 
-    BPath viewPath(outPath);
+    for (const TemplateSpec& spec : kTemplates) {
+        BPath viewPath(outPath);
+        viewPath.Append(spec.mimeType);
 
-    // Person View
-    BMessage contactViewFlat;
-    (new ContactView())->Archive(&contactViewFlat);
-    const char* mimeType = "application/x-person";
-    viewPath.Append(mimeType);
+        printf("generating template %s...\n", viewPath.Path());
+        result = create_directory(viewPath.Path(), B_READ_WRITE);
+        if (result != B_OK && result != B_FILE_EXISTS)
+            return result;
 
-    printf("generating template %s...\n", viewPath.Path());
-    result = create_directory(viewPath.Path(), B_READ_WRITE);
-    if (result != B_OK) return result;
+        BView* view = spec.create();
+        BMessage flat;
+        result = view->Archive(&flat);
+        delete view;
+        if (result != B_OK)
+            return result;
 
-    viewPath.Append("template.view");
-    BFile outFile(viewPath.Path(), B_CREATE_FILE | B_READ_WRITE);
-    result = outFile.InitCheck();
-    if (result == B_OK) result = contactViewFlat.Flatten(&outFile);
+        viewPath.Append("template.view");
+        BFile outFile(viewPath.Path(), B_CREATE_FILE | B_ERASE_FILE | B_READ_WRITE);
+        result = outFile.InitCheck();
+        if (result == B_OK)
+            result = flat.Flatten(&outFile);
+        if (result != B_OK)
+            return result;
+    }
 
-    return result;
+    return B_OK;
 }

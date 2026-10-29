@@ -11,6 +11,9 @@
 class ShojiView
 {
     public:
+                            ShojiView() : fView(NULL), fType(NULL) {}
+        virtual            ~ShojiView() {}
+
         virtual BView*      GetView() { return fView; }
         virtual const char* GetType() { return fType; }
         virtual bool        IsValid() { return fView != NULL; }

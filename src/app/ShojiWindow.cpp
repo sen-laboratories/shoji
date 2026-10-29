@@ -39,8 +39,8 @@ static const float kPictureHeight = 128;
 static const uint32 kMsgRevert = 'SHrv';
 static const uint32 kMsgExternalChoice = 'SHxc';
 
-ShojiWindow::ShojiWindow(entry_ref* ref) : BWindow(
-    BRect(BPoint(320.0, 128.0), BSize(480.0, 576.0)),
+ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
+    BRect(BPoint(320.0, 128.0), BSize(580.0, 576.0)),
     "Shoji Entity Viewer",
     B_DOCUMENT_WINDOW,
     B_WILL_ACCEPT_FIRST_CLICK),
@@ -131,6 +131,14 @@ ShojiWindow::ShojiWindow(entry_ref* ref) : BWindow(
 ShojiWindow::~ShojiWindow()
 {
     stop_watching(this);
+
+    if (fEntityView != NULL) {
+        // the window deletes its views; one that never was added (a failed setup) is ours
+        BView* view = fEntityView->GetView();
+        if (view != NULL && view->Window() == NULL && view->Parent() == NULL)
+            delete view;
+        delete fEntityView;
+    }
 }
 
 // The thumbnail of the file (the standard attribute Media:Thumbnail, an encoded image, as Tracker and BERT have it),
@@ -550,7 +558,6 @@ ShojiView* ShojiWindow::GetViewTemplateForType(const char* mimeType) {
     ShojiView* view = new ShojiTemplateView(mimeType);
     status_t status = view->Initialize();
 
-    BString message;
     if (status == B_ENTRY_NOT_FOUND) {
         printf("no template found for type %s, falling back to generic form view.\n", mimeType);
         delete view;
@@ -561,10 +568,10 @@ ShojiView* ShojiWindow::GetViewTemplateForType(const char* mimeType) {
     if (status != B_OK) {
         BString detail("Failed to set up view.");
         ShowUserError("Error", detail.String(), status);
+        delete view;
         return NULL;
     }
 
-    message.Append(mimeType);
     return view;
 }
 

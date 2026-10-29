@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <String.h>
 #include <View.h>
 #include "ShojiView.h"
 
@@ -22,4 +23,5 @@ class ShojiTemplateView : public ShojiView
 
     protected:
         status_t    LookupView(const char* mimeType, BView* view);
+        BString     fMimeType;
 };

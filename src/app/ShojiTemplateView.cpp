@@ -21,7 +21,8 @@
  */
 ShojiTemplateView::ShojiTemplateView(const char* mimeType) : ShojiView()
 {
-    fType = mimeType;
+    fMimeType = mimeType;
+    fType = fMimeType.String();
 }
 
 ShojiTemplateView::~ShojiTemplateView()
