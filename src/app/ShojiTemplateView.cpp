@@ -8,6 +8,8 @@
 #include <GridLayout.h>
 #include <StringView.h>
 #include <algorithm>
+#include <map>
+#include <vector>
 #include <Layout.h>
 #include <TextControl.h>
 #include <Directory.h>
@@ -106,9 +108,33 @@ status_t ShojiTemplateView::LookupView(const char* mimeType) {
     return (fView != NULL ? B_OK : B_ERROR);
 }
 
+// What a form of a grid (FormView: labels in the first column, the fields in the second) looks like before anything is replaced in it. A cell of a grid
+// is not looked up once a control spans both columns (ItemAt() of such a cell returns what is not an item), so the rows are read once, first.
+struct FormRows {
+    std::map<BView*, int32> rowOfField;     // the control of the second column and its row
+    std::vector<BView*>     labels;         // the view of the first column, by row (NULL if there is none)
+    float                   labelWidth;     // as wide as the widest label
+};
+
+static void ReadFormRows(BGridLayout* grid, FormRows* rows)
+{
+    rows->labelWidth = 0;
+    rows->labels.assign(grid->CountRows(), NULL);
+    for (int32 r = 0; r < grid->CountRows(); r++) {
+        BLayoutItem* label = grid->ItemAt(0, r);
+        if (label != NULL && label->View() != NULL) {
+            rows->labels[r] = label->View();
+            rows->labelWidth = std::max(rows->labelWidth, label->View()->PreferredSize().Width());
+        }
+        BLayoutItem* field = grid->ItemAt(1, r);
+        if (field != NULL && field->View() != NULL)
+            rows->rowOfField[field->View()] = r;
+    }
+}
+
 // A template made for text fields shows a list attribute in one: its field is replaced by the control for lists, in the place of the field
 // (a template that has the control for lists itself is left alone). The control keeps the label and the width of the label of the field.
-static BView* UpgradeToList(BView* view, const ShojiAttribute& attr)
+static BView* UpgradeToList(BView* view, const ShojiAttribute& attr, std::map<BGridLayout*, FormRows>& forms)
 {
     BTextControl* field = dynamic_cast<BTextControl*>(view);
     BView* parent = view->Parent();
@@ -120,27 +146,19 @@ static BView* UpgradeToList(BView* view, const ShojiAttribute& attr)
     // in the middle of the height of the list alone (the field and the buttons below the list are not part of it); it has the width of the column as it was
     BGridLayout* grid = dynamic_cast<BGridLayout*>(layout);
     int32 row = -1;
-    if (grid != NULL) {
-        for (int32 r = 0; r < grid->CountRows() && row < 0; r++) {
-            BLayoutItem* item = grid->ItemAt(1, r);
-            if (item != NULL && item->View() == view)
-                row = r;
-        }
-        if (row < 0)
-            return view;
-    }
-
+    BView* labelView = NULL;
     BString labelText;
     float labelWidth = 0;
-    BView* labelView = NULL;
     if (grid != NULL) {
-        for (int32 r = 0; r < grid->CountRows(); r++) {
-            BLayoutItem* item = grid->ItemAt(0, r);
-            if (item != NULL && item->View() != NULL)
-                labelWidth = std::max(labelWidth, item->View()->PreferredSize().Width());
-        }
-        BLayoutItem* item = grid->ItemAt(0, row);
-        labelView = item != NULL ? item->View() : NULL;
+        if (forms.find(grid) == forms.end())
+            ReadFormRows(grid, &forms[grid]);
+        const FormRows& rows = forms[grid];
+        auto found = rows.rowOfField.find(view);
+        if (found == rows.rowOfField.end())
+            return view;
+        row = found->second;
+        labelView = row < (int32) rows.labels.size() ? rows.labels[row] : NULL;
+        labelWidth = rows.labelWidth;
         if (BStringView* text = dynamic_cast<BStringView*>(labelView))
             labelText = text->Text();
     }
@@ -155,6 +173,7 @@ static BView* UpgradeToList(BView* view, const ShojiAttribute& attr)
         }
         grid->AddView(list, 0, row, 2, 1);
         delete labelView;
+        forms[grid].labels[row] = NULL;
     } else {
         int32 index = layout->IndexOfView(field);
         if (index < 0 || !layout->RemoveView(field)) {
@@ -170,12 +189,13 @@ static BView* UpgradeToList(BView* view, const ShojiAttribute& attr)
 // controls are named after the attributes they show, the others of the template are left alone.
 status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMessage* values)
 {
+    std::map<BGridLayout*, FormRows> forms;
     for (const ShojiAttribute& attr : attrs) {
         BView* view = fView->FindView(attr.name.String());
         if (view == NULL)
             continue;
         if (attr.list.isList)
-            view = UpgradeToList(view, attr);
+            view = UpgradeToList(view, attr, forms);
 
         BString text;
         values->FindString(attr.name.String(), &text);
