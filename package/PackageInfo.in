@@ -1,0 +1,32 @@
+name			shoji
+version			@VERSION@
+architecture	@ARCH@
+summary			"A template based viewer and editor for the attributes of files"
+description		"Shoji shows and edits the attributes of a file as an entity: a book, a person,
+a paper. The attributes that the MIME type of the file declares viewable are shown,
+those that it declares editable can be changed, and a change is written to the
+attributes of the file as soon as the field is left (Revert goes back to the
+state when the window was opened; changes made by other programs show up at once).
+A view template for a MIME type (an archived view, a book and a contact are
+included) arranges the fields; without one the fields are generated from the
+types of the attributes. The thumbnail of the file (Media:Thumbnail), else its
+icon, is shown beside them."
+packager		"Gregor B. Rosenauer <semantic.extensions@gmail.com>"
+vendor			"SEN Labs e.U."
+copyrights		{
+	"2024-2026 SEN Labs e.U."
+}
+licenses		{
+	"MIT"
+}
+urls			{
+	"https://sen-labs.org"
+	"https://github.com/sen-laboratories/shoji"
+}
+provides		{
+	shoji = @VERSION@
+	app:Shoji = @VERSION@
+}
+requires		{
+	haiku
+}

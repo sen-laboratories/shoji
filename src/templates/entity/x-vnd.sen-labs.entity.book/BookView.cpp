@@ -58,7 +58,6 @@ BookView::BookView() : BGroupView(B_VERTICAL, be_control_look->DefaultLabelSpaci
     GroupLayout()->AddView(Row(Field("dc:publisher", "Publisher"), Field("dc:date", "Date", be_plain_font->StringWidth("0000-00-00 00:00:00") + 16)));
     GroupLayout()->AddView(Row(Field("dc:language", "Language")));
     GroupLayout()->AddView(Row(Field("dc:subject", "Subjects")));
-    GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
 }
 
 BookView::~BookView()

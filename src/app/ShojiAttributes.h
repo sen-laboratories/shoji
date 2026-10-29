@@ -12,6 +12,8 @@
 
 #include <vector>
 
+#include <sen/SenAttrInfo.h>
+
 // sent by a control to its window: the value was changed but is not stored yet
 #define SHOJI_MSG_ATTR_EDITED   'SHed'
 // sent by a control to its window: store the value (Enter, click on a check box)
@@ -28,6 +30,7 @@ struct ShojiAttribute {
     BString     label;
     type_code   type;
     bool        editable;   // declared editable, and the file can be written
+    sen::ListConfig list;   // the value is a list in one string: shown as a list of values
 };
 
 typedef std::vector<ShojiAttribute> ShojiAttributeList;

@@ -17,6 +17,8 @@ class BButton;
 #include "ShojiAttributes.h"
 #include "ShojiView.h"
 
+class BGroupView;
+
 class ShojiWindow : public BWindow
 {
     public:
@@ -26,6 +28,7 @@ class ShojiWindow : public BWindow
         virtual void        MessageReceived(BMessage* message);
         virtual bool        QuitRequested();
         virtual void        WindowActivated(bool active);
+        virtual void        FrameResized(float width, float height);
 
     protected:
         ShojiView*          GetViewTemplateForType(const char* mimeType);
@@ -46,6 +49,8 @@ class ShojiWindow : public BWindow
         void                Revert();
         bool                HasChangesSinceOpen();
         void                UpdateRevertButton();
+        // the form is centred on the line through the middle of the picture (a third of the height), as the stripe has it
+        void                AlignForm();
 
         // changes of the attributes by others (the file is watched)
         void                ExternalChange(const char* name);
@@ -65,4 +70,6 @@ class ShojiWindow : public BWindow
         node_ref            fNodeRef;
         std::set<std::string> fAsking;  // attributes that the user is asked about
         BButton*            fRevertButton;
+        BGroupView*         fPanel;
+        float               fPictureHeight;
 };

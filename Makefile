@@ -33,7 +33,7 @@ APP_MIME_SIG = application/x-vnd.sen-labs.shoji
 #	means this Makefile will not work correctly if two source files with the
 #	same name (source.c or source.cpp) are included from different directories.
 #	Also note that spaces in folder names do not work well with this Makefile.
-SRCS =  src/app/ShojiApp.cpp src/app/ShojiAttributes.cpp src/app/ShojiWindow.cpp src/app/ShojiGenericFormView.cpp src/app/ShojiTemplateView.cpp src/templates/application/x-person/ContactView.cpp src/templates/entity/x-vnd.sen-labs.entity.book/BookView.cpp
+SRCS =  src/app/ShojiApp.cpp src/app/ShojiAttributes.cpp src/app/ShojiWindow.cpp src/app/ShojiGenericFormView.cpp src/app/ShojiListControl.cpp src/app/ShojiTemplateView.cpp src/templates/application/x-person/ContactView.cpp src/templates/entity/x-vnd.sen-labs.entity.book/BookView.cpp
 
 #	Specify the resource definition files to use. Full or relative paths can be
 #	used.

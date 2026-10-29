@@ -16,6 +16,8 @@
 #include <GroupLayout.h>
 #include <GroupView.h>
 #include <SpaceLayoutItem.h>
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <fs_attr.h>
 #include <MimeType.h>
@@ -32,6 +34,7 @@
 #include "ShojiView.h"
 #include "ShojiGenericFormView.h"
 #include "ShojiTemplateView.h"
+#include "ShojiListControl.h"
 
 static const char* kAttrThumbnail = "Media:Thumbnail";
 static const ssize_t kMaxThumbnailSize = 4 * 1024 * 1024;
@@ -43,11 +46,13 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BRect(BPoint(320.0, 128.0), BSize(580.0, 576.0)),
     "Shoji Entity Viewer",
     B_DOCUMENT_WINDOW,
-    B_WILL_ACCEPT_FIRST_CLICK),
+    B_WILL_ACCEPT_FIRST_CLICK | B_AUTO_UPDATE_SIZE_LIMITS),    // (the window is never smaller than its form needs)
     fRef(*ref),
     fWritable(false),
     fEntityView(NULL),
-    fRevertButton(NULL)
+    fRevertButton(NULL),
+    fPanel(NULL),
+    fPictureHeight(0)
 {
 	// as the About windows of SEN: the picture on a dark stripe on the left, the entity on the light panel
 	BGroupLayout* root = new BGroupLayout(B_HORIZONTAL, 0);
@@ -106,9 +111,11 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     panel->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
     panel->GroupLayout()->SetInsets(0, sen::DialogMargin(), sen::DialogMargin(), sen::DialogMargin());
     panel->GroupLayout()->SetSpacing(be_control_look->DefaultItemSpacing());
-    // the entity takes the room that the window gets, not just what its controls ask for
-    fEntityView->GetView()->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNLIMITED));
-    panel->AddChild(fEntityView->GetView());
+    // the entity takes the width that the window gets, but not more height than its controls ask for: it is centred, see AlignForm()
+    BView* entity = fEntityView->GetView();
+    entity->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, entity->PreferredSize().Height()));
+    panel->AddChild(entity);
+    panel->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
 
     // the changes are stored as they are made: this takes them back, to the file as it was opened
     fRevertButton = new BButton("revert", "Revert", new BMessage(kMsgRevert));
@@ -118,9 +125,14 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     buttons->GroupLayout()->AddView(fRevertButton);
     panel->AddChild(buttons);
 
-    root->AddView(new sen::StripeView(LoadPicture(kPictureHeight)));
+    BBitmap* picture = LoadPicture(kPictureHeight);
+    fPictureHeight = picture != NULL ? picture->Bounds().Height() + 1 : 0;
+    root->AddView(new sen::StripeView(picture));
     root->AddView(panel);
+    fPanel = panel;
     ConnectControls();
+
+    AlignForm();
 
     // others may change the attributes while the window is open
     BNode node(&fRef);
@@ -229,6 +241,27 @@ bool ShojiWindow::QuitRequested()
     return CommitAll() == B_OK;
 }
 
+void ShojiWindow::FrameResized(float width, float height)
+{
+    BWindow::FrameResized(width, height);
+    AlignForm();
+}
+
+// The fields are centred on the same line as the picture of the stripe (sen::StripePictureTop()), so that they line up with it however high the window is;
+// a form that fills the window starts at the margin.
+void ShojiWindow::AlignForm()
+{
+    if (fPanel == NULL || fEntityView == NULL || fEntityView->GetView() == NULL)
+        return;
+
+    const float margin = sen::DialogMargin();
+    const float formHeight = fEntityView->GetView()->ExplicitMaxSize().Height();
+    const float centre = sen::StripePictureTop(Bounds().Height(), fPictureHeight) + fPictureHeight / 2;
+
+    const float top = std::max(margin, floorf(centre - formHeight / 2));
+    fPanel->GroupLayout()->SetInsets(0, top, margin, margin);
+}
+
 void ShojiWindow::WindowActivated(bool active)
 {
     BWindow::WindowActivated(active);
@@ -303,6 +336,13 @@ void ShojiWindow::ConnectControls()
         } else if (BCheckBox* checkBox = dynamic_cast<BCheckBox*>(view)) {
             checkBox->SetMessage(commit);
             checkBox->SetTarget(this);
+        } else if (ShojiListControl* list = dynamic_cast<ShojiListControl*>(view)) {
+            BMessage* edited = new BMessage(SHOJI_MSG_ATTR_EDITED);
+            edited->AddString(SHOJI_FIELD_ATTR, attr.name.String());
+
+            list->SetModificationMessage(edited);
+            list->SetMessage(commit);
+            list->SetTarget(this);
         } else {
             delete commit;
         }

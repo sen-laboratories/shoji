@@ -81,6 +81,14 @@ ContactView::ContactView() : BGroupView(B_VERTICAL, 0) {
     containerPhoneCountry->GroupLayout()->AddView(countryView);
 
     GroupLayout()->AddView(containerPhoneCountry);
+
+    // Groups (Family, Friends...): a list attribute, so the text field is replaced by the control for lists when the file is shown
+    BGroupView* containerGroups = new BGroupView(B_HORIZONTAL, 240.0);
+    BTextControl* groupView = new BTextControl("META:group", "Groups", "", NULL);
+    groupView->SetEnabled(true);
+    containerGroups->GroupLayout()->AddView(groupView);
+
+    GroupLayout()->AddView(containerGroups);
 }
 
 ContactView::~ContactView()

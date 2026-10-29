@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <Path.h>
 #include <String.h>
 #include <View.h>
 #include "ShojiView.h"
@@ -22,6 +23,9 @@ class ShojiTemplateView : public ShojiView
         status_t    Populate(const ShojiAttributeList& attrs, const BMessage* values);
 
     protected:
-        status_t    LookupView(const char* mimeType, BView* view);
+        // the template of a MIME type: the first of the folders (see FindTemplateFile()) that has one, unarchived
+        status_t    LookupView(const char* mimeType);
+        // <folder>/shoji/templates/<MIME type>/template.view in the user's settings, the user's data, the system's data (what packages bring), ...
+        static status_t FindTemplateFile(const char* mimeType, BPath* file);
         BString     fMimeType;
 };

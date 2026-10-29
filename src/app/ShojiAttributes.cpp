@@ -18,6 +18,7 @@
 #include <type_traits>
 
 #include "ShojiAttributes.h"
+#include "ShojiListControl.h"
 
 namespace shoji {
 
@@ -78,6 +79,7 @@ void AttributesFromMimeInfo(const BMessage& attrInfo, ShojiAttributeList* attrs)
 
         attr.editable = false;
         attrInfo.FindBool("attr:editable", i, &attr.editable);
+        attr.list = sen::ListConfigAt(attrInfo, i);
 
         attrs->push_back(attr);
     }
@@ -362,6 +364,10 @@ status_t RestoreAttribute(BNode& node, const char* name, const ShojiAttributeSna
 
 bool GetControlValue(BView* view, BString* text)
 {
+    if (ShojiListControl* list = dynamic_cast<ShojiListControl*>(view)) {
+        *text = list->ListText();
+        return true;
+    }
     if (BTextControl* textControl = dynamic_cast<BTextControl*>(view)) {
         text->SetTo(textControl->Text());
         return true;
@@ -375,6 +381,12 @@ bool GetControlValue(BView* view, BString* text)
 
 bool SetControlValue(BView* view, const char* text)
 {
+    if (ShojiListControl* list = dynamic_cast<ShojiListControl*>(view)) {
+        // (the values are shown again only if the text is not what the list has: the user may be in the middle of editing)
+        if (list->ListText() != text)
+            list->SetListText(text);
+        return true;
+    }
     if (BTextControl* textControl = dynamic_cast<BTextControl*>(view)) {
         // leave the caret alone if there is nothing to change
         if (strcmp(textControl->Text(), text) != 0)
