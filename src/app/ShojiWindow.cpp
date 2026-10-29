@@ -71,7 +71,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
         result = mimeType.InitCheck();
     }
     if (result != B_OK) {
-        ShowUserError("MIME type lookup error", "Could not identify MIME type of file.", result);
+                ShowUserError("MIME type lookup error", "Could not identify MIME type of file.", result);
         PostMessage(B_QUIT_REQUESTED);
         return;
     }
@@ -79,7 +79,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BMessage mimeAttrInfo;
     result = mimeType.GetAttrInfo(&mimeAttrInfo);
     if (result != B_OK) {
-        ShowUserError("MIME attrInfo lookup error", "Could not identify MIME type attributeInfo for filetype.", result);
+                ShowUserError("MIME attrInfo lookup error", "Could not identify MIME type attributeInfo for filetype.", result);
         PostMessage(B_QUIT_REQUESTED);
         return;
     }
@@ -93,7 +93,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
 
     result = LoadAttributes(&mimeAttrInfo, &superTypeAttrInfo);
     if (result != B_OK) {
-        ShowUserError("Error opening view", "Could not map data for display.", result);
+                ShowUserError("Error opening view", "Could not map data for display.", result);
         PostMessage(B_QUIT_REQUESTED);
         return;
     }
@@ -115,7 +115,6 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BView* entity = fEntityView->GetView();
     entity->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, entity->PreferredSize().Height()));
     panel->AddChild(entity);
-    panel->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
 
     // the changes are stored as they are made: this takes them back, to the file as it was opened
     fRevertButton = new BButton("revert", "Revert", new BMessage(kMsgRevert));
@@ -124,6 +123,8 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     buttons->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
     buttons->GroupLayout()->AddView(fRevertButton);
     panel->AddChild(buttons);
+    // (the form and its button are one block, centred by AlignForm(); what is left over is below it)
+    panel->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
 
     BBitmap* picture = LoadPicture(kPictureHeight);
     fPictureHeight = picture != NULL ? picture->Bounds().Height() + 1 : 0;
@@ -135,8 +136,8 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     // the window is as high as its form needs, not a fixed height: for the picture, and for the form to be centred on the line of the picture
     // (a third of the height) with its margin above and the button below
     const float margin = sen::DialogMargin();
-    const float formHeight = entity->ExplicitMaxSize().Height();
-    const float needed = margin + formHeight + be_control_look->DefaultItemSpacing() + fRevertButton->PreferredSize().Height() + margin;
+    const float formHeight = BlockHeight();
+    const float needed = margin + formHeight + margin;
     // (centred on the line of the picture a form needs three times its half height and the margin: if that is much more than it needs, the form
     //  gets what it needs and stands a little lower than the picture, as a tall form has to)
     float aligned = 3 * (margin + formHeight / 2);
@@ -259,6 +260,12 @@ void ShojiWindow::FrameResized(float width, float height)
     AlignForm();
 }
 
+// the form with its button: what is centred
+float ShojiWindow::BlockHeight() const
+{
+    return fEntityView->GetView()->ExplicitMaxSize().Height() + be_control_look->DefaultItemSpacing() + fRevertButton->PreferredSize().Height();
+}
+
 // The fields are centred on the same line as the picture of the stripe (sen::StripePictureTop()), so that they line up with it however high the window is;
 // a form that fills the window starts at the margin.
 void ShojiWindow::AlignForm()
@@ -267,7 +274,7 @@ void ShojiWindow::AlignForm()
         return;
 
     const float margin = sen::DialogMargin();
-    const float formHeight = fEntityView->GetView()->ExplicitMaxSize().Height();
+    const float formHeight = BlockHeight();
     const float centre = sen::StripePictureTop(Bounds().Height(), fPictureHeight) + fPictureHeight / 2;
 
     const float top = std::max(margin, floorf(centre - formHeight / 2));

@@ -4,14 +4,13 @@
  */
 #pragma once
 
-#include <GroupView.h>
+#include "../../FormView.h"
 
 /**
- * The template for books (entity/x-vnd.sen-labs.entity.book): the title and the authors across, the rest in pairs. The
- * controls are named after the attributes of the book (Dublin Core and schema.org), the cover of the book is the
- * thumbnail on the stripe of the window.
+ * The template for books (entity/x-vnd.sen-labs.entity.book): a form with the attributes of a book (Dublin Core and schema.org). The cover of the
+ * book is the thumbnail on the stripe of the window.
  */
-class BookView : public BGroupView {
+class BookView : public FormView {
     public:
         BookView();
         virtual ~BookView();

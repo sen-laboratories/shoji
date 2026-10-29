@@ -51,6 +51,7 @@ class ShojiWindow : public BWindow
         void                UpdateRevertButton();
         // the form is centred on the line through the middle of the picture (a third of the height), as the stripe has it
         void                AlignForm();
+        float               BlockHeight() const;
 
         // changes of the attributes by others (the file is watched)
         void                ExternalChange(const char* name);

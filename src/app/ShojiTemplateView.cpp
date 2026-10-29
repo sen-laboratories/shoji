@@ -5,6 +5,9 @@
 
 #include <Alert.h>
 #include <Control.h>
+#include <GridLayout.h>
+#include <StringView.h>
+#include <algorithm>
 #include <Layout.h>
 #include <TextControl.h>
 #include <Directory.h>
@@ -113,13 +116,53 @@ static BView* UpgradeToList(BView* view, const ShojiAttribute& attr)
     if (field == NULL || layout == NULL || attr.type != B_STRING_TYPE)
         return view;
 
-    ShojiListControl* list = new ShojiListControl(attr.name.String(), attr.list.separator, field->Label(), field->Divider());
-    int32 index = layout->IndexOfView(field);
-    if (index < 0 || !layout->RemoveView(field)) {
-        delete list;
-        return view;
+    // in a form of a grid (FormView) the label stands in the first column, right-aligned: the list control takes it over and spans both columns, so that the label is
+    // in the middle of the height of the list alone (the field and the buttons below the list are not part of it); it has the width of the column as it was
+    BGridLayout* grid = dynamic_cast<BGridLayout*>(layout);
+    int32 row = -1;
+    if (grid != NULL) {
+        for (int32 r = 0; r < grid->CountRows() && row < 0; r++) {
+            BLayoutItem* item = grid->ItemAt(1, r);
+            if (item != NULL && item->View() == view)
+                row = r;
+        }
+        if (row < 0)
+            return view;
     }
-    layout->AddView(index, list);
+
+    BString labelText;
+    float labelWidth = 0;
+    BView* labelView = NULL;
+    if (grid != NULL) {
+        for (int32 r = 0; r < grid->CountRows(); r++) {
+            BLayoutItem* item = grid->ItemAt(0, r);
+            if (item != NULL && item->View() != NULL)
+                labelWidth = std::max(labelWidth, item->View()->PreferredSize().Width());
+        }
+        BLayoutItem* item = grid->ItemAt(0, row);
+        labelView = item != NULL ? item->View() : NULL;
+        if (BStringView* text = dynamic_cast<BStringView*>(labelView))
+            labelText = text->Text();
+    }
+
+    ShojiListControl* list = grid != NULL
+        ? new ShojiListControl(attr.name.String(), attr.list.separator, labelText.String(), labelWidth, B_ALIGN_RIGHT)
+        : new ShojiListControl(attr.name.String(), attr.list.separator, field->Label(), field->Divider());
+    if (grid != NULL) {
+        if (!grid->RemoveView(field) || (labelView != NULL && !grid->RemoveView(labelView))) {
+            delete list;
+            return view;
+        }
+        grid->AddView(list, 0, row, 2, 1);
+        delete labelView;
+    } else {
+        int32 index = layout->IndexOfView(field);
+        if (index < 0 || !layout->RemoveView(field)) {
+            delete list;
+            return view;
+        }
+        layout->AddView(index, list);
+    }
     delete field;
     return list;
 }

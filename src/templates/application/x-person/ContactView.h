@@ -4,9 +4,9 @@
  */
 #pragma once
 
-#include <GroupView.h>
+#include "../../FormView.h"
 
-class ContactView : public BGroupView {
+class ContactView : public FormView {
     public:
         ContactView();
         virtual ~ContactView();

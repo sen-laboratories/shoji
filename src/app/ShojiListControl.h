@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <Alignment.h>
 #include <Control.h>
 #include <String.h>
 
@@ -23,8 +24,9 @@ class BTextControl;
  */
 class ShojiListControl : public BControl {
 public:
-                        /** @param label shown on the left, the width of @p divider (as the label of a text control), NULL for none */
-                        ShojiListControl(const char* name, char separator, const char* label = NULL, float divider = 0);
+                        /** @param label shown on the left, the width of @p divider (as the label of a text control), NULL for none; it is in the middle of the height of the
+                         *  list, not of the field and the buttons below it */
+                        ShojiListControl(const char* name, char separator, const char* label = NULL, float divider = 0, alignment labelAlignment = B_ALIGN_LEFT);
     virtual            ~ShojiListControl();
 
     /** The values of the list from a text (the attribute) in the format of the list; nothing is edited yet. */

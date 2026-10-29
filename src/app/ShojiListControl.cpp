@@ -6,6 +6,7 @@
 #include <Button.h>
 #include <ControlLook.h>
 #include <Font.h>
+#include <GridLayout.h>
 #include <GroupLayout.h>
 #include <GroupView.h>
 #include <ListItem.h>
@@ -21,7 +22,7 @@
 
 #include "ShojiListControl.h"
 
-ShojiListControl::ShojiListControl(const char* name, char separator, const char* label, float divider)
+ShojiListControl::ShojiListControl(const char* name, char separator, const char* label, float divider, alignment labelAlignment)
     :
     BControl(name, NULL, NULL, B_WILL_DRAW),
     fSeparator(separator),
@@ -43,28 +44,31 @@ ShojiListControl::ShojiListControl(const char* name, char separator, const char*
     fAdd = new BButton("add", "Add", new BMessage(kAdd));
     fRemove = new BButton("remove", "Remove", new BMessage(kRemove));
 
-    // the label (if there is one) on the left, at the top of the list: it names all of the values; then the list, and below it the field and the buttons
-    BGroupLayout* root = new BGroupLayout(B_HORIZONTAL, spacing);
+    // the label (if there is one) on the left, in the middle of the height of the list: it names all of the values; the list, and below it the field and the buttons,
+    // are on the right of it
+    BGridLayout* root = new BGridLayout(spacing, be_control_look->DefaultLabelSpacing());
     SetLayout(root);
 
+    int32 column = 0;
     if (label != NULL) {
         BStringView* labelView = new BStringView("label", label);
-        labelView->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_TOP));
+        labelView->SetAlignment(labelAlignment);
+        labelView->SetExplicitAlignment(BAlignment(labelAlignment, B_ALIGN_VERTICAL_CENTER));
         if (divider > 0) {
             labelView->SetExplicitMinSize(BSize(divider, B_SIZE_UNSET));
             labelView->SetExplicitMaxSize(BSize(divider, B_SIZE_UNSET));
         }
-        root->AddView(labelView);
+        root->AddView(labelView, 0, 0);
+        column = 1;
     }
 
-    BGroupView* body = new BGroupView(B_VERTICAL, be_control_look->DefaultLabelSpacing());
-    body->GroupLayout()->AddView(scroll);
     BGroupView* editRow = new BGroupView(B_HORIZONTAL, be_control_look->DefaultLabelSpacing());
     editRow->GroupLayout()->AddView(fItem);
     editRow->GroupLayout()->AddView(fAdd);
     editRow->GroupLayout()->AddView(fRemove);
-    body->GroupLayout()->AddView(editRow);
-    root->AddView(body);
+    root->AddView(scroll, column, 0);
+    root->AddView(editRow, column, 1);
+    root->SetColumnWeight(column, 1);
 
     _UpdateButtons();
 }
