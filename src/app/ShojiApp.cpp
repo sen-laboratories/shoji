@@ -9,6 +9,7 @@
 #include <Errors.h>
 #include <File.h>
 #include <Path.h>
+#include <sys/stat.h>
 #include <cstdio>
 #include <cstring>
 
@@ -20,6 +21,9 @@
 #include "../templates/entity/x-vnd.sen-labs.entity.book/BookView.h"
 
 const char* kApplicationSignature = "application/x-vnd.sen-labs.Shoji";
+
+// the permissions of the folders of the templates (rwxr-xr-x: it is a mode, not the flag of an open file, which B_READ_WRITE is)
+static const mode_t kFolderMode = S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
 
 namespace {
 
@@ -126,7 +130,7 @@ void ShojiApp::RefsReceived(BMessage *message)
 // archives the template views to ./generated/<MIME type>/template.view
 status_t ShojiApp::GenerateTemplates() {
     BPath outPath("./generated");
-    status_t result = create_directory(outPath.Path(), B_READ_WRITE);
+    status_t result = create_directory(outPath.Path(), kFolderMode);
     if (result != B_OK && result != B_FILE_EXISTS) {
         return result;
     }
@@ -136,7 +140,7 @@ status_t ShojiApp::GenerateTemplates() {
         viewPath.Append(spec.mimeType);
 
         printf("generating template %s...\n", viewPath.Path());
-        result = create_directory(viewPath.Path(), B_READ_WRITE);
+        result = create_directory(viewPath.Path(), kFolderMode);
         if (result != B_OK && result != B_FILE_EXISTS)
             return result;
 
