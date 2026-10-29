@@ -4,12 +4,12 @@
  */
 
 #include <Alert.h>
+#include <Control.h>
 #include <Directory.h>
 #include <Errors.h>
 #include <File.h>
 #include <FindDirectory.h>
 #include <Path.h>
-#include <TextControl.h>
 #include <cstdio>
 
 #include "ShojiTemplateView.h"
@@ -98,57 +98,22 @@ status_t ShojiTemplateView::LookupView(const char* mimeType, BView* view) {
     return (fView != NULL ? B_OK : B_ERROR);
 }
 
-status_t ShojiTemplateView::Populate(const BMessage *mimeAttrInfo, const BMessage *props)
+// controls are named after the attributes they show, the others of the template are left alone.
+status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMessage* values)
 {
-    const void* data;
-    char*       name;
-    ssize_t     size;
-    type_code   type;
-    status_t    result;
+    for (const ShojiAttribute& attr : attrs) {
+        BView* view = fView->FindView(attr.name.String());
+        if (view == NULL)
+            continue;
 
-    int32 count = props->CountNames(B_ANY_TYPE);
-    int32 countFieldItems;
+        BString text;
+        values->FindString(attr.name.String(), &text);
+        if (!shoji::SetControlValue(view, text.String()))
+            continue;
 
-    for (int32 i = 0; i < count; i++) {
-        status_t result = props->GetInfo(B_ANY_TYPE, i, &name, &type, &countFieldItems);
-		if (result != B_OK)
-			continue;
-
-        if (countFieldItems != 1) {
-            BString error("Could not process message data ");
-            error.Append(name).Append("\nMultiple items per field not supported.");
-
-            BAlert alert("Error setting up view", error.String(), "OK");
-            alert.SetFlags(alert.Flags() | B_STOP_ALERT | B_CLOSE_ON_ESCAPE);
-            alert.Go();
-            return B_ERROR;
-        }
-
-        result = props->FindData(name, type, &data, &size);
-        if (result != B_OK) {
-            BString error("Could not read data ");
-            error.Append(name);
-            BAlert alert("Error setting up view", error.String(), "OK");
-            alert.SetFlags(alert.Flags() | B_STOP_ALERT | B_CLOSE_ON_ESCAPE);
-            alert.Go();
-            return B_ERROR;
-        }
-
-        bool editable = props->FindBool("attr:editable");
-
-        BView*    view = fView->FindView(name);
-        // sanity check
-        if (BControl* control = dynamic_cast<BControl*>(view)) {
-            control->SetEnabled(editable);
-        }
-        PopulateControl(view, &data);
+        if (BControl* control = dynamic_cast<BControl*>(view))
+            control->SetEnabled(attr.editable);
     }
 
     return B_OK;
-}
-
-void ShojiTemplateView::PopulateControl(BView *view, const void** data) {
-    if (BTextControl* tc = dynamic_cast<BTextControl*>(view)) {
-        tc->SetText(reinterpret_cast<const char*>(*data));
-    }
 }

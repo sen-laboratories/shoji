@@ -27,11 +27,11 @@ ContactView::ContactView() : BGroupView(B_VERTICAL, 0) {
 	// Set view color to standard background grey
 	SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 
-    BTextControl* nameView = new BTextControl("META:name", "", "Name", NULL);
+    BTextControl* nameView = new BTextControl("META:name", "Name", "", NULL);
     nameView->SetEnabled(true);
     containerNameAdress->GroupLayout()->AddView(nameView);
 
-    BTextControl* addressView = new BTextControl("META:address", "", "Address", NULL);
+    BTextControl* addressView = new BTextControl("META:address", "Address", "", NULL);
     addressView->SetEnabled(true);
     containerNameAdress->GroupLayout()->AddView(addressView);
 
@@ -42,11 +42,11 @@ ContactView::ContactView() : BGroupView(B_VERTICAL, 0) {
 	// Set view color to standard background grey
 	SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 
-    BTextControl* companyView = new BTextControl("META:company", "", "Company", NULL);
+    BTextControl* companyView = new BTextControl("META:company", "Company", "", NULL);
     companyView->SetEnabled(true);
     containerCompanyZip->GroupLayout()->AddView(companyView);
 
-    BTextControl* zipView = new BTextControl("META:zip", "", "ZIP code", NULL);
+    BTextControl* zipView = new BTextControl("META:zip", "ZIP code", "", NULL);
     zipView->SetEnabled(true);
     containerCompanyZip->GroupLayout()->AddView(zipView);
 
@@ -57,11 +57,11 @@ ContactView::ContactView() : BGroupView(B_VERTICAL, 0) {
 	// Set view color to standard background grey
 	SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 
-    BTextControl* emailView = new BTextControl("META:email", "", "E-Mail", NULL);
+    BTextControl* emailView = new BTextControl("META:email", "E-Mail", "", NULL);
     emailView->SetEnabled(true);
     containerEmailCity->GroupLayout()->AddView(emailView);
 
-    BTextControl* cityView = new BTextControl("META:city", "", "City", NULL);
+    BTextControl* cityView = new BTextControl("META:city", "City", "", NULL);
     cityView->SetEnabled(true);
     containerEmailCity->GroupLayout()->AddView(cityView);
 
@@ -72,11 +72,11 @@ ContactView::ContactView() : BGroupView(B_VERTICAL, 0) {
 	// Set view color to standard background grey
 	SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 
-    BTextControl* phoneView = new BTextControl("META:mphone", "","Mobile", NULL);
+    BTextControl* phoneView = new BTextControl("META:mphone", "Mobile", "", NULL);
     phoneView->SetEnabled(true);
     containerPhoneCountry->GroupLayout()->AddView(phoneView);
 
-    BTextControl* countryView = new BTextControl("META:country", "", "Country", NULL);
+    BTextControl* countryView = new BTextControl("META:country", "Country", "", NULL);
     countryView->SetEnabled(true);
     containerPhoneCountry->GroupLayout()->AddView(countryView);
 

@@ -4,7 +4,7 @@
  */
 #pragma once
 
-#include <GroupView.h>
+#include <GridView.h>
 
 #include "ShojiView.h"
 
@@ -13,8 +13,8 @@ class ShojiGenericFormView : public ShojiView
     public:
                     ShojiGenericFormView();
         virtual	   ~ShojiGenericFormView();
-        status_t    Populate(const BMessage *mimeAttrInfo, const BMessage* attrs);
+        status_t    Populate(const ShojiAttributeList& attrs, const BMessage* values);
 
     protected:
-        BView*      CreateDataView(const char* name, type_code typeCode, bool editable, const void* data);
+        BControl*   CreateDataControl(const ShojiAttribute& attr, const char* text);
 };

@@ -6,6 +6,8 @@
 
 #include <View.h>
 
+#include "ShojiAttributes.h"
+
 class ShojiView
 {
     public:
@@ -13,7 +15,8 @@ class ShojiView
         virtual const char* GetType() { return fType; }
         virtual bool        IsValid() { return fView != NULL; }
         virtual status_t    Initialize() { return B_OK; }
-        virtual status_t    Populate(const BMessage *mimeAttrInfo, const BMessage* attrs) { return B_ERROR; }
+        // shows the attributes of the MIME type; values holds the text of those that the file has (field per name)
+        virtual status_t    Populate(const ShojiAttributeList& attrs, const BMessage* values) { return B_ERROR; }
 
     protected:
         BView*      fView;

@@ -18,9 +18,8 @@ class ShojiTemplateView : public ShojiView
         virtual	   ~ShojiTemplateView();
         const char* GetType();
         status_t    Initialize();
-        status_t    Populate(const BMessage *mimeAttrInfo, const BMessage* attrs);
+        status_t    Populate(const ShojiAttributeList& attrs, const BMessage* values);
 
     protected:
         status_t    LookupView(const char* mimeType, BView* view);
-        void        PopulateControl(BView *view, const void** data);
 };

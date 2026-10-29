@@ -3,161 +3,84 @@
  * SPDX-FileCopyrightText: 2024-2026 SEN Labs e.U.
  */
 
-#include <Alert.h>
 #include <CheckBox.h>
 #include <ControlLook.h>
 #include <Entry.h>
 #include <Errors.h>
-#include <GroupView.h>
+#include <GridLayout.h>
+#include <LayoutItem.h>
+#include <SpaceLayoutItem.h>
 #include <TextControl.h>
+
+#include <cstring>
 
 #include "ShojiGenericFormView.h"
 
 /*
  * generic dynamic view to use when no MIME specific view is available for the source file.
- * Builds a view containing fields and controls according to the attribute type of the source file attributes.
+ * Builds a form with a control for each attribute of the MIME type, according to the type of the attribute:
+ * a check box for booleans, a text field for everything else. The controls are named after their attribute.
  */
 ShojiGenericFormView::ShojiGenericFormView() : ShojiView()
 {
-    fView = new BGroupView(B_VERTICAL, 0);
-	fView->SetFlags(fView->Flags() | B_NAVIGABLE);
-	fView->SetName("Shoji Dynamic View");
-    reinterpret_cast<BGroupView*>(fView)->GroupLayout()->SetInsets(be_control_look->DefaultLabelSpacing());
+    BGridView* form = new BGridView();
+    form->SetName("Shoji Dynamic View");
+    form->SetFlags(form->Flags() | B_NAVIGABLE);
+    form->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 
-	// Set view color to standard background grey
-	fView->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
-	fView->SetFont(be_plain_font);
+    fView = form;
+    fType = NULL;
 }
 
 ShojiGenericFormView::~ShojiGenericFormView()
 {
 }
 
-status_t ShojiGenericFormView::Populate(const BMessage *mimeAttrInfo, const BMessage *props)
+status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const BMessage* values)
 {
-    const void* data;
-    char*       name;
-    ssize_t     size;
-    type_code   type;
-    status_t    result;
+    BGridLayout* layout = reinterpret_cast<BGridView*>(fView)->GridLayout();
+    int32 row = 0;
 
-    int32 count = props->CountNames(B_ANY_TYPE);
-    int32 countFieldItems;
+    for (const ShojiAttribute& attr : attrs) {
+        BString text;
+        values->FindString(attr.name.String(), &text);
 
-    for (int32 i = 0; i < count; i++) {
-        status_t result = props->GetInfo(B_ANY_TYPE, i, &name, &type, &countFieldItems);
-		if (result != B_OK)
-			continue;
-
-        if (countFieldItems != 1) {
-            BString error("Could not process message data ");
-            error.Append(name).Append("\nMultiple items per field not supported.");
-
-            BAlert alert("Error setting up view", error.String(), "OK");
-            alert.SetFlags(alert.Flags() | B_STOP_ALERT | B_CLOSE_ON_ESCAPE);
-            alert.Go();
-            return B_ERROR;
+        BControl* control = CreateDataControl(attr, text.String());
+        if (BTextControl* textControl = dynamic_cast<BTextControl*>(control)) {
+            // label and field in two columns, aligned over all rows; a field is wide enough to edit in
+            textControl->TextView()->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
+            textControl->TextView()->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+            layout->AddItem(textControl->CreateLabelLayoutItem(), 0, row);
+            layout->AddItem(textControl->CreateTextViewLayoutItem(), 1, row);
+        } else {
+            layout->AddView(control, 0, row, 2, 1);
         }
-
-        result = props->FindData(name, type, &data, &size);
-        if (result != B_OK) {
-            BString error("Could not read data ");
-            error.Append(name);
-
-            BAlert alert("Error setting up view", error.String(), "OK");
-            alert.SetFlags(alert.Flags() | B_STOP_ALERT | B_CLOSE_ON_ESCAPE);
-            alert.Go();
-
-            return B_ERROR;
-        }
-
-        bool editable = props->FindBool("attr:editable");
-        BView* propView = CreateDataView(name, type, editable, data);
-
-        reinterpret_cast<BGroupView*>(fView)->GroupLayout()->AddView(propView);
+        row++;
     }
+    layout->SetColumnWeight(1, 100.0f);
+    // keep the rows together at the top
+    layout->AddItem(BSpaceLayoutItem::CreateGlue(), 0, row, 2, 1);
+    layout->SetRowWeight(row, 100.0f);
 
     return B_OK;
 }
 
-BView* ShojiGenericFormView::CreateDataView(const char* name, type_code typeCode, bool editable, const void* data)
+BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, const char* text)
 {
-    // container view
-    BString containerLabel(name);
-    containerLabel.Append("_container");
+    BControl* control = NULL;
 
-    BGroupView* containerView = new BGroupView(B_HORIZONTAL, 240.0);    // todo: calculate from all fields
-	containerView->SetName(containerLabel.String());
-	// Set view color to standard background grey
-	fView->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
-
-    // add data label
-    BString label(name);
-    label.Append("_label");
-
-    // add data field
-    BControl* dataView = NULL;
-
-    switch(typeCode) {
-        case B_BOOL_TYPE: {
-            dataView = new BCheckBox(name, new BMessage()); /* todo: */
-            bool state = reinterpret_cast<const bool*>(data);
-            reinterpret_cast<BCheckBox*>(dataView)->SetValue(
-                state ? B_CONTROL_ON : B_CONTROL_OFF);
-            break;
-        }
-        case B_DOUBLE_TYPE: {
-            const double* number = reinterpret_cast<const double*>(data);
-            BString value;
-            value << *number;
-            dataView = new BTextControl(name, value.String(), new BMessage() /* todo: */);
-            break;
-        }
-        case B_FLOAT_TYPE: {
-            const float* number = reinterpret_cast<const float*>(data);
-            BString value;
-            value << *number;
-            dataView = new BTextControl(name, value.String(), new BMessage() /* todo: */);
-            break;
-        }
-        case B_INT8_TYPE: {
-            const int8* number = reinterpret_cast<const int8*>(data);
-            BString value;
-            value << *number;
-            dataView = new BTextControl(name, value.String(), new BMessage() /* todo: */);
-            break;
-        }
-        case B_INT16_TYPE: {
-            const int16* number = reinterpret_cast<const int16*>(data);
-            BString value;
-            value << *number;
-            dataView = new BTextControl(name, value.String(), new BMessage() /* todo: */);
-            break;
-        }
-        case B_INT32_TYPE: {
-            const int32* number = reinterpret_cast<const int32*>(data);
-            BString value;
-            value << *number;
-            dataView = new BTextControl(name, value.String(), new BMessage() /* todo: */);
-            break;
-        }
-        case B_STRING_TYPE:
-            dataView = new BTextControl(name, reinterpret_cast<const char*>(data), new BMessage() /* todo: */);
-            break;
-
-        default:
-            BString error("(field type of attribute '");
-            error.Append(name).Append("' is not supported)");
-
-            dataView = new BTextControl(name, error.String(), new BMessage());
-            break;
+    if (attr.type == B_BOOL_TYPE) {
+        BCheckBox* checkBox = new BCheckBox(attr.name.String(), attr.label.String(), NULL);
+        checkBox->SetValue(strcmp(text, "1") == 0 ? B_CONTROL_ON : B_CONTROL_OFF);
+        control = checkBox;
+    } else if (shoji::IsSupportedType(attr.type)) {
+        control = new BTextControl(attr.name.String(), attr.label.String(), text, NULL);
+    } else {
+        BString note("(type of attribute '");
+        note << attr.name << "' is not supported)";
+        control = new BTextControl(attr.name.String(), attr.label.String(), note.String(), NULL);
     }
-    // set editable based on MIME type attr info flag
-    dataView->SetEnabled(editable);
-    dataView->ResizeToPreferred();
+    control->SetEnabled(attr.editable);
 
-    containerView->GroupLayout()->AddView(dataView);
-    containerView->ResizeToPreferred();
-
-    return containerView;
+    return control;
 }

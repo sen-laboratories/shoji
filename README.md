@@ -20,3 +20,18 @@ The shoji metaphor captures both the transparency (you can see your data) and th
 Together, 編集 (henshū) actually forms a compound word meaning "editing" or "compilation" - which captures both the individual manipulation of files (編) and their organized collection/management (集).
 
 This pairing expresses the core functionality of this SEN Labs project: the ability to edit and organize files as structured objects.
+
+# Using it
+
+`shoji <file>` (or Open With... Shoji) opens an entity: a thumbnail of the file (its `Media:Thumbnail`, else its icon) on the dark stripe and the attributes of its MIME type on the light panel.
+
+* Only attributes that the MIME type declares **viewable** in its attribute info are shown, and only those declared **editable** can be changed, if the file itself is writable.
+* The view is a template for the MIME type (an archived `BView` in `~/config/settings/shoji/templates/<type>/template.view`, controls named after the attributes), or, without one, a generated form with a control for the type of each attribute.
+* Changes are written to the attributes of the file as soon as a field is left (click elsewhere, Tab, Enter, another window, closing); a check box when clicked. A value that does not fit the type is refused and the field goes back. An empty value removes the attribute.
+* **Revert** puts all attributes back as the file had them when it was opened (or when someone else last changed them).
+* The file is watched: when another program changes an attribute that you are not editing, the field shows it at once; when it changes one that you have edited and not stored, Shoji asks whether to keep your change or take the new value.
+
+Supported types: strings, booleans, integers (8 to 64 bit, signed and unsigned), float, double and time (`YYYY-MM-DD HH:MM:SS`). Other types are shown as read-only.
+
+Building needs the SEN headers (`sento/install.sh`) for the stripe of the About windows (`<sen/SenStripeDialog.h>`).
+
