@@ -34,3 +34,4 @@
 # generated stuff
 generated/
 objects.*
+.DS_Store
