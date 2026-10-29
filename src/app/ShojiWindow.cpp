@@ -132,6 +132,18 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     fPanel = panel;
     ConnectControls();
 
+    // the window is as high as its form needs, not a fixed height: for the picture, and for the form to be centred on the line of the picture
+    // (a third of the height) with its margin above and the button below
+    const float margin = sen::DialogMargin();
+    const float formHeight = entity->ExplicitMaxSize().Height();
+    const float needed = margin + formHeight + be_control_look->DefaultItemSpacing() + fRevertButton->PreferredSize().Height() + margin;
+    // (centred on the line of the picture a form needs three times its half height and the margin: if that is much more than it needs, the form
+    //  gets what it needs and stands a little lower than the picture, as a tall form has to)
+    float aligned = 3 * (margin + formHeight / 2);
+    if (aligned > needed * 1.35f)
+        aligned = needed;
+    const float pictureArea = margin * 2 + fPictureHeight;
+    ResizeTo(Bounds().Width(), ceilf(std::max(needed, std::max(aligned, pictureArea))));
     AlignForm();
 
     // others may change the attributes while the window is open
