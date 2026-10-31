@@ -14,7 +14,7 @@ class BTextControl;
 
 /**
  * The value of an attribute that is a list (the attribute info of its MIME type says so, see sento SenAttrInfo.h) as a list of values instead of one
- * string with separators: the values in a list, the selected one in a field to edit, Add and Remove. The text of the attribute is split and joined
+ * string with separators: the values in a list, the selected one in a field to edit, Add and Remove. What is typed in the field with no value selected is a new value: Add or Enter appends it. The text of the attribute is split and joined
  * with the rules of SenList.h, so a value can hold the separator (it is quoted when it is stored).
  *
  * It tells its window what a text control does: the modification message when the list changes (typing, Add, Remove), the message of the control (SetMessage)
@@ -54,6 +54,8 @@ private:
 
     void                _UpdateButtons();
     void                _Changed();
+    void                _AddFromField();
+    void                _ReadyForNew();
 
     BListView*          fList;
     BTextControl*       fItem;
