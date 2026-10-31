@@ -55,7 +55,9 @@ const TemplateSpec kTemplates[] = {
 }   // namespace
 
 
-ShojiApp::ShojiApp() : BApplication(kApplicationSignature)
+ShojiApp::ShojiApp() : BApplication(kApplicationSignature),
+    fWindowSeen(false),
+    fStarted(system_time())
 {
 }
 
@@ -74,6 +76,24 @@ int main()
 
 	delete app;
 	return 0;
+}
+
+// Shoji is a multiple launch application that is not a background application: each file that is opened from a Tracker window may start an instance, and
+// the instance ends with its last window (a BApplication does not do that by itself). The windows are looked at twice a second, which also covers the
+// About window; a program that was started without a file and has no window to show does not stay either.
+void ShojiApp::ReadyToRun()
+{
+    SetPulseRate(500000);
+}
+
+void ShojiApp::Pulse()
+{
+    if (CountWindows() > 0) {
+        fWindowSeen = true;
+        return;
+    }
+    if (fWindowSeen || system_time() - fStarted > 3000000)
+        PostMessage(B_QUIT_REQUESTED);
 }
 
 // The logo of Shoji for the stripe of the About window: what the package brings (data/shoji/logo.jpg of the data folders), else, for a program that runs
