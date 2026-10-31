@@ -27,6 +27,7 @@
 // custom template views
 #include "../templates/application/x-person/ContactView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.book/BookView.h"
+#include "../templates/entity/x-vnd.sen-labs.entity.person/PersonView.h"
 
 const char* kApplicationSignature = "application/x-vnd.sen-labs.shoji";
 
@@ -43,10 +44,12 @@ struct TemplateSpec {
 
 BView* CreateContactView() { return new ContactView(); }
 BView* CreateBookView() { return new BookView(); }
+BView* CreatePersonView() { return new PersonView(); }
 
 const TemplateSpec kTemplates[] = {
     { "application/x-person", CreateContactView },
     { "entity/x-vnd.sen-labs.entity.book", CreateBookView },
+    { "entity/x-vnd.sen-labs.entity.person", CreatePersonView },
 };
 
 }   // namespace
