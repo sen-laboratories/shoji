@@ -13,6 +13,7 @@
 #include <string>
 
 class BButton;
+class BMenuBar;
 
 #include "ShojiAttributes.h"
 #include "ShojiView.h"
@@ -51,6 +52,8 @@ class ShojiWindow : public BWindow
         void                UpdateRevertButton();
         // the form is centred on the line through the middle of the picture (a third of the height), as the stripe has it
         void                AlignForm();
+        BMenuBar*           BuildMenuBar();
+        float               MenuBarHeight() const;
         float               BlockHeight() const;
 
         // changes of the attributes by others (the file is watched)
@@ -71,6 +74,7 @@ class ShojiWindow : public BWindow
         node_ref            fNodeRef;
         std::set<std::string> fAsking;  // attributes that the user is asked about
         BButton*            fRevertButton;
+        BMenuBar*           fMenuBar;
         BGroupView*         fPanel;
         float               fPictureHeight;
 };

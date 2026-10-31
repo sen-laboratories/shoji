@@ -13,6 +13,7 @@ class ShojiApp : public BApplication
         virtual			    ~ShojiApp();
         virtual void        RefsReceived(BMessage* message);
         virtual void        ArgvReceived(int32 argc, char **argv);
+        virtual void        AboutRequested();
     private:
         status_t            GenerateTemplates();
 };

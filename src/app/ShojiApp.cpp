@@ -4,6 +4,11 @@
  */
 
 #include <Alert.h>
+#include <AppFileInfo.h>
+#include <Bitmap.h>
+#include <FindDirectory.h>
+#include <Roster.h>
+#include <String.h>
 #include <Directory.h>
 #include <Entry.h>
 #include <Errors.h>
@@ -12,6 +17,9 @@
 #include <sys/stat.h>
 #include <cstdio>
 #include <cstring>
+
+#include <sen/SenStripeDialog.h>
+#include <sen/SenVersion.h>
 
 #include "ShojiApp.h"
 #include "ShojiWindow.h"
@@ -63,6 +71,51 @@ int main()
 
 	delete app;
 	return 0;
+}
+
+// The logo of Shoji for the stripe of the About window: what the package brings (data/shoji/logo.jpg of the data folders), else, for a program that runs
+// from its source tree, the picture of the repository.
+static BBitmap* LoadLogo(float height)
+{
+    const directory_which folders[] = {B_USER_DATA_DIRECTORY, B_USER_NONPACKAGED_DATA_DIRECTORY, B_SYSTEM_DATA_DIRECTORY, B_SYSTEM_NONPACKAGED_DATA_DIRECTORY};
+    for (directory_which folder : folders) {
+        BPath path;
+        if (find_directory(folder, &path) != B_OK || path.Append("shoji/logo.jpg") != B_OK)
+            continue;
+        BBitmap* logo = sen::LoadDialogImage(path.Path(), height);
+        if (logo != NULL)
+            return logo;
+    }
+    app_info info;
+    BPath path;
+    if (be_app->GetAppInfo(&info) == B_OK && path.SetTo(&info.ref) == B_OK && path.GetParent(&path) == B_OK && path.GetParent(&path) == B_OK
+            && path.Append("images/shoji-logo.jpg") == B_OK)
+        return sen::LoadDialogImage(path.Path(), height);
+    return NULL;
+}
+
+// The About window of SEN (sento, SenStripeDialog.h): the name, the version and the description of the version resource, and the logo on the stripe.
+void ShojiApp::AboutRequested()
+{
+    app_info info;
+    if (GetAppInfo(&info) != B_OK)
+        return;
+
+    version_info version;
+    memset(&version, 0, sizeof(version));
+    BFile file(&info.ref, B_READ_ONLY);
+    BAppFileInfo appInfo(&file);
+    bool hasVersion = file.InitCheck() == B_OK && appInfo.GetVersionInfo(&version, B_APP_VERSION_KIND) == B_OK;
+
+    BString name(hasVersion && version.short_info[0] != '\0' ? version.short_info : info.ref.name);
+    BString number;
+    if (hasVersion)
+        number = sen::VersionText(version);
+    BString copyright("Copyright " B_UTF8_COPYRIGHT " 2024-2026 SEN Labs e.U.\nPart of SEN, the Semantic Extensions\nNative for Haiku (MIT license).");
+
+    sen::AboutDialog* window = new sen::AboutDialog(name.String(), number.String(), hasVersion ? version.long_info : "", copyright.String(),
+        LoadLogo(128));
+    window->ShowCentered();
 }
 
 void ShojiApp::ArgvReceived(int32 argc, char **argv)

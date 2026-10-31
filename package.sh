@@ -38,6 +38,7 @@ work=$(mktemp -d)
 cp -a $work/generated/. $STAGE/data/shoji/templates/
 rm -rf $work
 
+cp -a images/shoji-logo.jpg $STAGE/data/shoji/logo.jpg
 cp -a README.md LICENSE $STAGE/documentation/packages/shoji/
 sed -e "s|@VERSION@|$VERSION|g" -e "s|@ARCH@|$ARCH|g" package/PackageInfo.in > $STAGE/.PackageInfo
 

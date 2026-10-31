@@ -5,6 +5,9 @@
 
 #include <Alert.h>
 #include <Invoker.h>
+#include <Menu.h>
+#include <MenuBar.h>
+#include <MenuItem.h>
 #include <NodeMonitor.h>
 #include <Bitmap.h>
 #include <Button.h>
@@ -51,13 +54,20 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     fWritable(false),
     fEntityView(NULL),
     fRevertButton(NULL),
+    fMenuBar(NULL),
     fPanel(NULL),
     fPictureHeight(0)
 {
 	// as the About windows of SEN: the picture on a dark stripe on the left, the entity on the light panel
-	BGroupLayout* root = new BGroupLayout(B_HORIZONTAL, 0);
-	SetLayout(root);
-	root->Owner()->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+	BGroupLayout* outer = new BGroupLayout(B_VERTICAL, 0);
+	SetLayout(outer);
+	outer->Owner()->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+	fMenuBar = BuildMenuBar();
+	outer->AddView(fMenuBar);
+	BGroupView* content = new BGroupView(B_HORIZONTAL, 0);
+	content->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+	outer->AddView(content);
+	BGroupLayout* root = content->GroupLayout();
     UpdateTitle();
     status_t result;
 
@@ -144,7 +154,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     if (aligned > needed * 1.35f)
         aligned = needed;
     const float pictureArea = margin * 2 + fPictureHeight;
-    ResizeTo(Bounds().Width(), ceilf(std::max(needed, std::max(aligned, pictureArea))));
+    ResizeTo(Bounds().Width(), ceilf(std::max(needed, std::max(aligned, pictureArea))) + MenuBarHeight());
     AlignForm();
 
     // others may change the attributes while the window is open
@@ -260,6 +270,28 @@ void ShojiWindow::FrameResized(float width, float height)
     AlignForm();
 }
 
+// The standard menu of an application: File with About, a separator and Quit (both go to the application, which shows the About window and quits).
+BMenuBar* ShojiWindow::BuildMenuBar()
+{
+    BMenuBar* bar = new BMenuBar("menubar");
+    BMenu* menu = new BMenu("File");
+    BMenuItem* about = new BMenuItem("About Shoji", new BMessage(B_ABOUT_REQUESTED));
+    about->SetTarget(be_app);
+    menu->AddItem(about);
+    menu->AddSeparatorItem();
+    BMenuItem* quit = new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED), 'Q');
+    quit->SetTarget(be_app);
+    menu->AddItem(quit);
+    bar->AddItem(menu);
+    return bar;
+}
+
+// the height that the menu bar takes from the window (the form and the stripe are below it)
+float ShojiWindow::MenuBarHeight() const
+{
+    return fMenuBar != NULL ? fMenuBar->MinSize().Height() + 1 : 0;
+}
+
 // the form with its button: what is centred
 float ShojiWindow::BlockHeight() const
 {
@@ -275,7 +307,7 @@ void ShojiWindow::AlignForm()
 
     const float margin = sen::DialogMargin();
     const float formHeight = BlockHeight();
-    const float centre = sen::StripePictureTop(Bounds().Height(), fPictureHeight) + fPictureHeight / 2;
+    const float centre = sen::StripePictureTop(Bounds().Height() - MenuBarHeight(), fPictureHeight) + fPictureHeight / 2;
 
     const float top = std::max(margin, floorf(centre - formHeight / 2));
     fPanel->GroupLayout()->SetInsets(0, top, margin, margin);
