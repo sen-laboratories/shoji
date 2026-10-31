@@ -137,9 +137,10 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     // (the form and its button are one block, centred by AlignForm(); what is left over is below it)
     panel->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
 
-    BBitmap* picture = LoadPicture(kPictureHeight);
+    BBitmap* full = NULL;
+    BBitmap* picture = LoadPicture(kPictureHeight, &full);
     fPictureHeight = picture != NULL ? picture->Bounds().Height() + 1 : 0;
-    root->AddView(new sen::StripeView(picture));
+    root->AddView(new sen::StripeView(picture, full));
     root->AddView(panel);
     fPanel = panel;
     ConnectControls();
@@ -179,8 +180,10 @@ ShojiWindow::~ShojiWindow()
 
 // The thumbnail of the file (the standard attribute Media:Thumbnail, an encoded image, as Tracker and BERT have it),
 // scaled down to the height; else the icon of the file, which is a vector icon and so as sharp as it is large.
-BBitmap* ShojiWindow::LoadPicture(float height)
+BBitmap* ShojiWindow::LoadPicture(float height, BBitmap** full)
 {
+    if (full != NULL)
+        *full = NULL;
     BNode node(&fRef);
     attr_info info;
     if (node.GetAttrInfo(kAttrThumbnail, &info) == B_OK && info.size > 0 && info.size <= kMaxThumbnailSize) {
@@ -189,7 +192,11 @@ BBitmap* ShojiWindow::LoadPicture(float height)
         if (node.ReadAttr(kAttrThumbnail, info.type, 0, (void*)data.Buffer(), info.size) == info.size) {
             BBitmap* thumbnail = BTranslationUtils::GetBitmap(&data);
             BBitmap* scaled = sen::ScaleDown(thumbnail, height);
-            delete thumbnail;
+            // the thumbnail itself is the picture that a click shows, if it is larger than it is shown
+            if (full != NULL && thumbnail != NULL && scaled != NULL && thumbnail->Bounds().Height() > scaled->Bounds().Height() + 1)
+                *full = thumbnail;
+            else
+                delete thumbnail;
             if (scaled != NULL)
                 return scaled;
         }

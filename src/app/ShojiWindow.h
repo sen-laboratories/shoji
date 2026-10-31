@@ -36,7 +36,7 @@ class ShojiWindow : public BWindow
         void                ShowUserError(const char* title, const char* message, status_t errorCode);
         status_t            GetMimeTypeForRef(const entry_ref* ref, char* mimeType);
 
-        BBitmap*            LoadPicture(float height);
+        BBitmap*            LoadPicture(float height, BBitmap** full = NULL);
         bool                IsFileWritable() const;
         status_t            LoadAttributes(const BMessage* mimeAttrInfo, const BMessage* superTypeAttrInfo);
         void                ConnectControls();
