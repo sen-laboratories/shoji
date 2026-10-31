@@ -44,6 +44,9 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
     int32 row = 0;
 
     for (const ShojiAttribute& attr : attrs) {
+        if (!attr.viewable)
+            continue;
+
         BString text;
         values->FindString(attr.name.String(), &text);
 

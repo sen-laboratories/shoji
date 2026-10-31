@@ -51,11 +51,6 @@ void AttributesFromMimeInfo(const BMessage& attrInfo, ShojiAttributeList* attrs)
 {
     const char* name;
     for (int32 i = 0; attrInfo.FindString("attr:name", i, &name) == B_OK; i++) {
-        bool viewable = false;
-        attrInfo.FindBool("attr:viewable", i, &viewable);
-        if (!viewable)
-            continue;
-
         bool known = false;
         for (const ShojiAttribute& attr : *attrs) {
             if (attr.name == name) {
@@ -68,6 +63,8 @@ void AttributesFromMimeInfo(const BMessage& attrInfo, ShojiAttributeList* attrs)
 
         ShojiAttribute attr;
         attr.name = name;
+        attr.viewable = false;
+        attrInfo.FindBool("attr:viewable", i, &attr.viewable);
 
         const char* label = NULL;
         attrInfo.FindString("attr:public_name", i, &label);

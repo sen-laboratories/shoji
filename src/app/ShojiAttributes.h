@@ -29,6 +29,7 @@ struct ShojiAttribute {
     BString     name;
     BString     label;
     type_code   type;
+    bool        viewable;   // declared viewable: shown by the generated form (a template shows the fields it names, whatever the type says)
     bool        editable;   // declared editable, and the file can be written
     sen::ListConfig list;   // the value is a list in one string: shown as a list of values
 };
@@ -49,7 +50,8 @@ namespace shoji {
 // types that can be shown and stored: strings, booleans, integers, floating point numbers and time
 bool        IsSupportedType(type_code type);
 
-// appends the viewable attributes of a MIME type attribute info that are not in the list yet.
+// appends the attributes of a MIME type attribute info that are not in the list yet (all of them: "viewable" is for the columns of lists, and decides what the
+// generated form shows; a template names its fields itself, and the biography of a person is not viewable but is in the form).
 void        AttributesFromMimeInfo(const BMessage& attrInfo, ShojiAttributeList* attrs);
 
 // reads an attribute of the file as text. The type of the attribute is set to the type found in
