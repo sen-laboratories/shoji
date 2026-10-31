@@ -139,6 +139,32 @@ void ShojiListControl::_UpdateButtons()
     fRemove->SetEnabled(IsEnabled() && fList->CurrentSelection() >= 0);
 }
 
+// Add: the text of the field is a new value (no value selected); with a value selected, or an empty field, the field is made ready for a new one
+void ShojiListControl::_AddFromField()
+{
+    BString text(fItem->Text());
+    if (fList->CurrentSelection() >= 0 || text.Trim().IsEmpty()) {
+        _ReadyForNew();
+        return;
+    }
+
+    fList->AddItem(new BStringItem(fItem->Text()));
+    fItem->SetText("");
+    fItem->MakeFocus(true);
+    _UpdateButtons();
+    _Changed();
+    Invoke();   // (adding a value is complete at once)
+}
+
+// no value is selected, the field is empty and has the focus: what is typed now is a new value
+void ShojiListControl::_ReadyForNew()
+{
+    fList->DeselectAll();
+    fItem->SetText("");
+    fItem->MakeFocus(true);
+    _UpdateButtons();
+}
+
 // the list was changed by the user: the window is told (and learns the new text when it asks)
 void ShojiListControl::_Changed()
 {
@@ -170,17 +196,23 @@ void ShojiListControl::MessageReceived(BMessage* message)
             break;
         }
         case kItemDone:
-            // Enter, or the field was left with another text than it got the focus with
-            if (fEdited)
-                Invoke();
-            break;
-        case kAdd:
         {
-            fList->AddItem(new BStringItem(""));
-            fList->Select(fList->CountItems() - 1);
-            fItem->MakeFocus(true);
+            // Enter, or the field was left with another text than it got the focus with
+            bool enter = fItem->TextView()->IsFocus();
+            if (fList->CurrentSelection() >= 0) {
+                // (a value that is edited has changed already, with every key)
+                if (fEdited)
+                    Invoke();
+                if (enter)
+                    _ReadyForNew();
+            } else if (enter) {
+                _AddFromField();
+            }
             break;
         }
+        case kAdd:
+            _AddFromField();
+            break;
         case kRemove:
         {
             int32 selected = fList->CurrentSelection();
