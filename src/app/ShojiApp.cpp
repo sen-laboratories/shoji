@@ -28,7 +28,7 @@
 #include "../templates/application/x-person/ContactView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.book/BookView.h"
 
-const char* kApplicationSignature = "application/x-vnd.sen-labs.Shoji";
+const char* kApplicationSignature = "application/x-vnd.sen-labs.shoji";
 
 // the permissions of the folders of the templates (rwxr-xr-x: it is a mode, not the flag of an open file, which B_READ_WRITE is)
 static const mode_t kFolderMode = S_IRWXU | S_IRGRP | S_IXGRP | S_IROTH | S_IXOTH;
