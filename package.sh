@@ -4,7 +4,7 @@
 #
 # Makes the package of Shoji: the program, its view templates (data/shoji/templates, where Shoji looks for them after the settings of the user) and the
 # entry of the Deskbar menu. Needs the built program (make, bin/shoji); the templates are made by the program itself (bin/shoji -g).
-# The version comes from the app_version resource: variety 0 is a development version (0.2.0~develop, with the count of `internal` if it is not 0), 2 a beta (0.2.0~beta3), 5 the final one.
+# The version comes from the app_version resource: variety 0 is a development version (1.0.0~develop, with the count of `internal` if it is not 0), 2 a beta (1.0.0~beta3), 5 the final one.
 # REVISION overrides the revision (default 1).
 set -e
 cd "$(dirname "$0")"
