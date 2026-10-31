@@ -9,7 +9,7 @@
 #include <View.h>
 #include "ShojiView.h"
 
-#define SHOJI_TEMPLATE_VIEW_TYPE "application/x.vnd-sen-labs.Shoji.templateView"
+#define SHOJI_TEMPLATE_VIEW_TYPE "application/x-vnd.sen-labs.shoji.templateView"
 #define SHOJI_TEMPLATE_PATH "shoji/templates"
 #define SHOJI_TEMPLATE_NAME "template.view"
 
