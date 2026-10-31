@@ -24,6 +24,20 @@ namespace shoji {
 
 static const ssize_t kMaxAttributeSize = 64 * 1024;
 static const char* kTimeFormat = "%Y-%m-%d %H:%M:%S";
+static const char* kDateFormat = "%Y-%m-%d";
+static const int64 kSecondsPerDay = 86400;
+
+// midnight UTC of a day of the proleptic Gregorian calendar (days_from_civil of Howard Hinnant; Haiku has no timegm)
+static time_t MidnightUtc(const struct tm& day)
+{
+    const int month = day.tm_mon + 1;
+    const int y = month <= 2 ? day.tm_year + 1900 - 1 : day.tm_year + 1900;
+    const int era = (y >= 0 ? y : y - 399) / 400;
+    const int yearOfEra = y - era * 400;
+    const int dayOfYear = (153 * (month + (month > 2 ? -3 : 9)) + 2) / 5 + day.tm_mday - 1;
+    const int dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear;
+    return (time_t)(((int64)era * 146097 + dayOfEra - 719468) * kSecondsPerDay);
+}
 
 bool IsSupportedType(type_code type)
 {
@@ -145,12 +159,15 @@ static status_t FormatValue(type_code type, const uint8* data, ssize_t size, BSt
             } else {
                 return B_BAD_DATA;
             }
+            // a value at midnight UTC is a calendar day (what SEN plugins store for a publication or birth date):
+            // shown as the date, not as a time of day that moves with the time zone
+            const bool isDate = seconds % kSecondsPerDay == 0;
             time_t time = (time_t)seconds;
             struct tm parts;
-            if (localtime_r(&time, &parts) == NULL)
+            if ((isDate ? gmtime_r(&time, &parts) : localtime_r(&time, &parts)) == NULL)
                 return B_BAD_DATA;
             char buffer[64];
-            strftime(buffer, sizeof(buffer), kTimeFormat, &parts);
+            strftime(buffer, sizeof(buffer), isDate ? kDateFormat : kTimeFormat, &parts);
             text->SetTo(buffer);
             return B_OK;
         }
@@ -260,8 +277,8 @@ static status_t ParseValue(type_code type, const char* text, std::vector<uint8>*
             return B_OK;
         }
         case B_TIME_TYPE: {
-            // date and time, or just a date
-            static const char* formats[] = { kTimeFormat, "%Y-%m-%d %H:%M", "%Y-%m-%d" };
+            // date and time (local time), or just a date (midnight UTC, shown again as the date)
+            static const char* formats[] = { kTimeFormat, "%Y-%m-%d %H:%M", kDateFormat };
             for (const char* format : formats) {
                 struct tm parts;
                 memset(&parts, 0, sizeof(parts));
@@ -269,7 +286,7 @@ static status_t ParseValue(type_code type, const char* text, std::vector<uint8>*
                 const char* rest = strptime(text, format, &parts);
                 if (rest == NULL || *rest != '\0')
                     continue;
-                time_t time = mktime(&parts);
+                time_t time = format == kDateFormat ? MidnightUtc(parts) : mktime(&parts);
                 if (time == (time_t)-1)
                     return B_BAD_VALUE;
                 Append(data, &time, sizeof(time));
