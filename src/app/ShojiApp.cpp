@@ -22,10 +22,12 @@
 #include <sen/SenVersion.h>
 
 #include "ShojiApp.h"
+#include "ShojiSettingsWindow.h"
 #include "ShojiWindow.h"
 
 // custom template views
 #include "../templates/application/x-person/ContactView.h"
+#include "../templates/document/scientific-paper/PaperView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.book/BookView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.person/PersonView.h"
 
@@ -45,17 +47,20 @@ struct TemplateSpec {
 BView* CreateContactView() { return new ContactView(); }
 BView* CreateBookView() { return new BookView(); }
 BView* CreatePersonView() { return new PersonView(); }
+BView* CreatePaperView() { return new PaperView(); }
 
 const TemplateSpec kTemplates[] = {
     { "application/x-person", CreateContactView },
     { "entity/x-vnd.sen-labs.entity.book", CreateBookView },
     { "entity/x-vnd.sen-labs.entity.person", CreatePersonView },
+    { "document/scientific-paper", CreatePaperView },
 };
 
 }   // namespace
 
 
 ShojiApp::ShojiApp() : BApplication(kApplicationSignature),
+    fOpenedFile(false),
     fWindowSeen(false),
     fStarted(system_time())
 {
@@ -84,6 +89,34 @@ int main()
 void ShojiApp::ReadyToRun()
 {
     SetPulseRate(500000);
+
+    // started with no file (from the Deskbar menu): there is nothing to edit, the settings are what there is to see
+    if (!fOpenedFile && CountWindows() == 0)
+        ShowSettings();
+}
+
+// The settings window, one of it: a second request brings the first to the front.
+void ShojiApp::ShowSettings()
+{
+    for (int32 i = 0; i < CountWindows(); i++) {
+        ShojiSettingsWindow* window = dynamic_cast<ShojiSettingsWindow*>(WindowAt(i));
+        if (window != NULL) {
+            window->Activate();
+            return;
+        }
+    }
+    (new ShojiSettingsWindow())->Show();
+}
+
+void ShojiApp::MessageReceived(BMessage* message)
+{
+    switch (message->what) {
+        case kMsgShowSettings:
+            ShowSettings();
+            break;
+        default:
+            BApplication::MessageReceived(message);
+    }
 }
 
 void ShojiApp::Pulse()
@@ -185,6 +218,7 @@ void ShojiApp::RefsReceived(BMessage *message)
     int32 opened = 0;
 
     for (int32 i = 0; message->FindRef("refs", i, &ref) == B_OK; i++) {
+        fOpenedFile = true;
         ShojiWindow* window = new ShojiWindow(&ref);
         window->Show();
         opened++;

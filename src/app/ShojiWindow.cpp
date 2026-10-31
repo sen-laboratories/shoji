@@ -33,6 +33,7 @@
 
 #include <sen/SenStripeDialog.h>
 
+#include "ShojiApp.h"
 #include "ShojiWindow.h"
 #include "ShojiView.h"
 #include "ShojiGenericFormView.h"
@@ -278,6 +279,9 @@ BMenuBar* ShojiWindow::BuildMenuBar()
     BMenuItem* about = new BMenuItem("About Shoji", new BMessage(B_ABOUT_REQUESTED));
     about->SetTarget(be_app);
     menu->AddItem(about);
+    BMenuItem* settings = new BMenuItem("Settings" B_UTF8_ELLIPSIS, new BMessage(kMsgShowSettings), ',');
+    settings->SetTarget(be_app);
+    menu->AddItem(settings);
     menu->AddSeparatorItem();
     BMenuItem* quit = new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED), 'Q');
     quit->SetTarget(be_app);
@@ -666,12 +670,22 @@ ShojiView* ShojiWindow::GetViewTemplateForType(const char* mimeType) {
     return view;
 }
 
+// The type that the file is for SEN: its semantic type (META:TYPE: a PDF that Paperboy found to be a scientific paper is that) if it is an installed type, else
+// its MIME type (what its format is). The template and the attributes are those of that type.
 status_t ShojiWindow::GetMimeTypeForRef(const entry_ref* ref, char* mimeType) {
     BNode sourceNode(ref);
     status_t result;
     if ((result = sourceNode.InitCheck()) != B_OK) {
         return result;
     }
+
+    BString semantic;
+    if (sourceNode.ReadAttrString("META:TYPE", &semantic) == B_OK && !semantic.IsEmpty()
+            && semantic.Length() < B_MIME_TYPE_LENGTH && BMimeType(semantic.String()).IsInstalled()) {
+        strlcpy(mimeType, semantic.String(), B_MIME_TYPE_LENGTH);
+        return B_OK;
+    }
+
     BNodeInfo sourceInfo(&sourceNode);
     if ((result = sourceInfo.InitCheck()) != B_OK) {
         return result;
