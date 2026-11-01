@@ -17,6 +17,10 @@ PersonView::PersonView() : FormView("Person View") {
     // Groups (Family, Friends...): a list attribute, so the text field is replaced by the control for lists when the file is shown
     AddField("vcard:category", "Groups");
     AddField("dc:description", "Description");
+    // where else the person is known (ORCID, Wikidata...), a list of IRIs; the photo's credit and license as the source asks to say them
+    AddField("schema:sameAs", "Same as");
+    AddField("schema:creditText", "Photo credit");
+    AddField("schema:license", "Photo license");
     Finish();
 }
 
