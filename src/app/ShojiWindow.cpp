@@ -341,7 +341,7 @@ bool ShojiWindow::IsFileWritable() const
     return path.InitCheck() == B_OK && access(path.Path(), W_OK) == 0;
 }
 
-// Collects the viewable attributes of the MIME type and its supertype, and their values in the file.
+// Collects the viewable attributes of the MIME type and its supertype, and their values in the file (if the type has none to show: the attributes of the file).
 status_t ShojiWindow::LoadAttributes(const BMessage* mimeAttrInfo, const BMessage* superTypeAttrInfo)
 {
     shoji::AttributesFromMimeInfo(*mimeAttrInfo, &fAttrs);
@@ -351,6 +351,11 @@ status_t ShojiWindow::LoadAttributes(const BMessage* mimeAttrInfo, const BMessag
     status_t result = node.InitCheck();
     if (result != B_OK)
         return result;
+
+    // a type that has nothing to show (a text or Markdown file): what the file has
+    const bool declared = std::any_of(fAttrs.begin(), fAttrs.end(), [](const ShojiAttribute& attr) { return attr.viewable; });
+    if (!declared)
+        shoji::AttributesOfFile(node, &fAttrs);
 
     for (ShojiAttribute& attr : fAttrs) {
         BString text;

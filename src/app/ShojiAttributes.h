@@ -54,6 +54,10 @@ bool        IsSupportedType(type_code type);
 // generated form shows; a template names its fields itself, and the biography of a person is not viewable but is in the form).
 void        AttributesFromMimeInfo(const BMessage& attrInfo, ShojiAttributeList* attrs);
 
+// For a type that declares nothing to show: the attributes that the file has itself, those that Shoji can show and edit (not the ones of the system,
+// of the file manager and of SEN: BEOS:, SYS:, _trk/, SEN:), added after those that are there already.
+void        AttributesOfFile(BNode& node, ShojiAttributeList* attrs);
+
 // reads an attribute of the file as text. The type of the attribute is set to the type found in
 // the file, so that storing never changes it. B_ENTRY_NOT_FOUND: the file does not have it.
 status_t    LoadAttribute(BNode& node, ShojiAttribute* attr, BString* text);

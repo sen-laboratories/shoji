@@ -96,6 +96,45 @@ void AttributesFromMimeInfo(const BMessage& attrInfo, ShojiAttributeList* attrs)
     }
 }
 
+static bool IsInternalAttribute(const char* name)
+{
+    static const char* prefixes[] = { "BEOS:", "SYS:", "_trk/", "SEN:" };
+    for (const char* prefix : prefixes) {
+        if (strncmp(name, prefix, strlen(prefix)) == 0)
+            return true;
+    }
+    return false;
+}
+
+void AttributesOfFile(BNode& node, ShojiAttributeList* attrs)
+{
+    char name[B_ATTR_NAME_LENGTH];
+    node.RewindAttrs();
+    while (node.GetNextAttrName(name) == B_OK) {
+        if (IsInternalAttribute(name))
+            continue;
+
+        bool known = false;
+        for (const ShojiAttribute& attr : *attrs) {
+            if (attr.name == name) {
+                known = true;
+                break;
+            }
+        }
+        attr_info info;
+        if (known || node.GetAttrInfo(name, &info) != B_OK || !IsSupportedType(info.type) || info.size > kMaxAttributeSize)
+            continue;
+
+        ShojiAttribute attr;
+        attr.name = name;
+        attr.label = name;
+        attr.type = info.type;
+        attr.viewable = true;
+        attr.editable = true;
+        attrs->push_back(attr);
+    }
+}
+
 // --- reading: attribute data to text
 
 template<typename T>

@@ -68,6 +68,12 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
         }
         row++;
     }
+    if (row == 0) {
+        // nothing to show, and the window should say so, not look broken
+        BStringView* note = new BStringView("note", "This file has no attributes to show.");
+        note->SetHighUIColor(B_PANEL_TEXT_COLOR, B_DARKEN_1_TINT);
+        layout->AddView(note, 0, row++, 2, 1);
+    }
     layout->SetColumnWeight(1, 100.0f);
     // keep the rows together at the top
     layout->AddItem(BSpaceLayoutItem::CreateGlue(), 0, row, 2, 1);
