@@ -5,7 +5,7 @@
 
 // Dates and times of a B_TIME_TYPE attribute: a value at midnight UTC (what the plugins store for a publication or birth date) is shown as the day, a typed day is stored the
 // same way, and a time of day stays a time of day in local time. Build and run on Haiku:
-//   g++ -std=c++20 -Isrc/app -I/boot/home/config/non-packaged/develop/headers tests/DateTest.cpp src/app/ShojiAttributes.cpp src/app/ShojiListControl.cpp -o /tmp/date-test -lbe && /tmp/date-test
+//   g++ -std=c++20 -Isrc/app -I/boot/home/config/non-packaged/develop/headers -I/boot/system/develop/headers/private/shared tests/DateTest.cpp src/app/ShojiAttributes.cpp src/app/ShojiListControl.cpp src/app/ShojiDateControl.cpp -o /tmp/date-test -lbe -lshared && /tmp/date-test
 
 #include "ShojiAttributes.h"
 

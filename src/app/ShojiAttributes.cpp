@@ -18,6 +18,7 @@
 #include <type_traits>
 
 #include "ShojiAttributes.h"
+#include "ShojiDateControl.h"
 #include "ShojiListControl.h"
 
 namespace shoji {
@@ -429,6 +430,10 @@ bool GetControlValue(BView* view, BString* text)
         text->SetTo(checkBox->Value() == B_CONTROL_ON ? "1" : "0");
         return true;
     }
+    if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
+        *text = date->DateText();
+        return true;
+    }
     return false;
 }
 
@@ -448,6 +453,11 @@ bool SetControlValue(BView* view, const char* text)
     }
     if (BCheckBox* checkBox = dynamic_cast<BCheckBox*>(view)) {
         checkBox->SetValue(strcmp(text, "1") == 0 ? B_CONTROL_ON : B_CONTROL_OFF);
+        return true;
+    }    if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
+        // (a value that is not a date stays out: the control only holds dates)
+        if (ShojiDateControl::IsDateText(text) && date->DateText() != text)
+            date->SetDateText(text);
         return true;
     }
     return false;

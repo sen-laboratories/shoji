@@ -24,6 +24,7 @@
 #include "ShojiApp.h"
 #include "ShojiSettingsWindow.h"
 #include "ShojiWindow.h"
+#include "../message/ShojiMessageWindow.h"
 
 // custom template views
 #include "../templates/application/x-person/ContactView.h"
@@ -219,7 +220,13 @@ void ShojiApp::RefsReceived(BMessage *message)
 
     for (int32 i = 0; message->FindRef("refs", i, &ref) == B_OK; i++) {
         fOpenedFile = true;
-        ShojiWindow* window = new ShojiWindow(&ref);
+        // a file that is a flattened message (a settings file) is a form of its fields, any other has attributes
+        BMessage data;
+        BWindow* window;
+        if (ShojiMessageWindow::LoadMessageFile(ref, &data))
+            window = new ShojiMessageWindow(ref, data);
+        else
+            window = new ShojiWindow(&ref);
         window->Show();
         opened++;
     }
