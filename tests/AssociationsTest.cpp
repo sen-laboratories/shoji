@@ -8,6 +8,7 @@
 
 #include "ShojiAssociations.h"
 
+#include <Application.h>
 #include <MimeType.h>
 
 #include <stdio.h>
@@ -40,6 +41,7 @@ static void TestChoice()
     const std::string shoji = "application/x-vnd.sen-labs.shoji";
     std::vector<shoji::TypeState> types = {
         {"text/plain", "application/x-vnd.Haiku-StyledEdit", false},
+        {"image/jpeg", "application/x-vnd.Haiku-ShowImage", false},    // (through the supertype, the system's answer is what is in the list)
         {"entity/x-vnd.sen-labs.entity.book", "", true},
         {"entity/x-vnd.sen-labs.entity.movie", "", false},
         {"application/x-person", "application/x-vnd.Be-PEPL", true},
@@ -58,6 +60,7 @@ static void TestChoice()
     CHECK(Has(none, "video/x-unknown"));
     CHECK(Has(none, "document/scientific-paper"));
     CHECK(!Has(none, "text/plain"));
+    CHECK(!Has(none, "image/jpeg"));
     CHECK(!Has(none, "application/x-person"));              // (it has People)
     CHECK(!Has(none, "application/x-vnd.Be-PEPL"));
     CHECK(!Has(none, "image/png"));
@@ -77,6 +80,48 @@ static std::string AppOf(const char* type)
     app[0] = '\0';
     BMimeType(type).GetPreferredApp(app);
     return app;
+}
+
+// A type that has no application of its own but whose supertype has one is not "without an application" (the files of image/jpeg open in ShowImage through `image`):
+// what the system opens a file with is what counts. A type that nothing opens is, and so is one that only Shoji could open.
+static std::string ApplicationFor(const std::vector<shoji::TypeState>& types, const char* type)
+{
+    for (const shoji::TypeState& state : types) {
+        if (state.type == type)
+            return state.application;
+    }
+    return "<not listed>";
+}
+
+static void TestInherited()
+{
+    BMimeType supertype("shojitest2");
+    const bool madeSupertype = !supertype.IsInstalled() && supertype.Install() == B_OK;
+    BMimeType inheriting("shojitest2/x-inherits"), alone("shojitest2/x-alone");
+    CHECK(inheriting.Install() == B_OK);
+    CHECK(alone.Install() == B_OK);
+
+    // nothing opens the types yet
+    std::vector<shoji::TypeState> types = shoji::InstalledTypes({});
+    CHECK(ApplicationFor(types, "shojitest2/x-inherits").empty());
+    CHECK(ApplicationFor(types, "shojitest2/x-alone").empty());
+
+    // the supertype has an application: both types are opened by it
+    CHECK(supertype.SetPreferredApp("application/x-vnd.Haiku-StyledEdit") == B_OK);
+    types = shoji::InstalledTypes({});
+    CHECK(ApplicationFor(types, "shojitest2/x-inherits") == "application/x-vnd.Haiku-StyledEdit");
+    const std::vector<std::string> chosen = shoji::ChooseTypes(shoji::kAssociateUnassociated, types, "application/x-vnd.sen-labs.shoji");
+    CHECK(!Has(chosen, "shojitest2/x-inherits") && !Has(chosen, "shojitest2/x-alone"));
+
+    // an application of the type itself wins over the supertype's
+    CHECK(alone.SetPreferredApp("application/x-vnd.Haiku-ShowImage") == B_OK);
+    types = shoji::InstalledTypes({});
+    CHECK(ApplicationFor(types, "shojitest2/x-alone") == "application/x-vnd.Haiku-ShowImage");
+
+    inheriting.Delete();
+    alone.Delete();
+    if (madeSupertype)
+        supertype.Delete();
 }
 
 static void TestApply()
@@ -115,7 +160,7 @@ static std::map<std::string, std::string> Snapshot()
 {
     std::map<std::string, std::string> apps;
     for (const shoji::TypeState& state : shoji::InstalledTypes(shoji::TemplateTypes()))
-        apps[state.type] = state.preferredApp;
+        apps[state.type] = state.application;
     return apps;
 }
 
@@ -158,8 +203,10 @@ static void TestLive()
 
 int main()
 {
+    BApplication app("application/x-vnd.sen-labs.shoji-associations-test");    // (the roster tells which application opens a type)
     TestChoice();
     TestApply();
+    TestInherited();
     if (getenv("SHOJI_TEST_LIVE") != NULL)
         TestLive();
     printf("%d checks, %d failed\n", sChecks, sFailures);
