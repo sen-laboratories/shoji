@@ -15,7 +15,8 @@
  * is). Nothing is associated unless the user chooses it in the settings of Shoji:
  *
  *   - nothing (the default): Shoji opens what it is asked to open (the SEN menus and "Open with" do that)
- *   - all file types that have no application yet (a file type with no template gets the form that Shoji makes from the attributes of the type)
+ *   - all file types that have no application yet, by the preferred application, the supertype and the supporting applications (a file type with no template gets the
+ *     form that Shoji makes from the attributes of the type)
  *   - the same, and the file types that Shoji has a template for, whatever application they have (People of Haiku is replaced for its files)
  *
  * What was the application of a file type before is remembered, so that going back to "nothing" (or choosing another way) puts it back.
@@ -31,7 +32,10 @@ enum AssociationMode {
 /** What is known about an installed file type when it is decided whether Shoji takes it. */
 struct TypeState {
     std::string type;               // "document/scientific-paper"
-    std::string preferredApp;       // the signature, empty: none
+    // The signature of the application that opens files of the type, empty: none. That is not only the preferred application of the type: the system also uses the one of
+    // its supertype (the files of `image/jpeg` open in ShowImage because `image` has it) and, with none, an application that says it supports the type (StyledEdit for the
+    // types of text). A type counts as having no application only if none of these is there.
+    std::string application;
     bool        hasTemplate;
 };
 

@@ -5,11 +5,14 @@
 
 #include "ShojiAssociations.h"
 
+#include <AppFileInfo.h>
 #include <Directory.h>
 #include <Entry.h>
+#include <File.h>
 #include <FindDirectory.h>
 #include <MimeType.h>
 #include <Path.h>
+#include <Roster.h>
 #include <String.h>
 
 #include <algorithm>
@@ -37,9 +40,9 @@ std::vector<std::string> ChooseTypes(AssociationMode mode, const std::vector<Typ
         // (the type of an application is its signature: the file of a program is an "application/x-be-executable", not that)
         if (state.type.compare(0, 18, "application/x-vnd.") == 0)
             continue;
-        if (state.type.find('/') == std::string::npos || state.preferredApp == signature)
+        if (state.type.find('/') == std::string::npos || state.application == signature)
             continue;
-        const bool unassociated = state.preferredApp.empty();
+        const bool unassociated = state.application.empty();
         if (unassociated || (mode == kAssociateTemplated && state.hasTemplate))
             chosen.push_back(state.type);
     }
@@ -78,6 +81,27 @@ std::vector<std::string> TemplateTypes()
     return std::vector<std::string>(found.begin(), found.end());
 }
 
+// The application that opens files of a type: the preferred one of the type; else what the system finds (BRoster::FindApp(): the preferred one of the supertype, then an
+// application that supports the type), which is what "has an application" means to a person. The preferred application alone is empty for almost every type of images,
+// of which ShowImage opens all through the supertype.
+static std::string ApplicationOf(const char* type)
+{
+    char app[B_MIME_TYPE_LENGTH];
+    app[0] = '\0';
+    if (BMimeType(type).GetPreferredApp(app) == B_OK && app[0] != '\0')
+        return app;
+
+    entry_ref ref;
+    if (be_roster == NULL || be_roster->FindApp(type, &ref) != B_OK)
+        return std::string();
+    BFile file(&ref, B_READ_ONLY);
+    BAppFileInfo info(&file);
+    app[0] = '\0';
+    if (info.InitCheck() != B_OK || info.GetSignature(app) != B_OK)
+        return std::string();
+    return app;
+}
+
 std::vector<TypeState> InstalledTypes(const std::vector<std::string>& templateTypes)
 {
     std::vector<TypeState> types;
@@ -99,10 +123,7 @@ std::vector<TypeState> InstalledTypes(const std::vector<std::string>& templateTy
             // (a type is named in full: "text/plain")
             if (state.type.find('/') == std::string::npos)
                 state.type = std::string(supertype) + "/" + type;
-            char app[B_MIME_TYPE_LENGTH];
-            app[0] = '\0';
-            BMimeType(state.type.c_str()).GetPreferredApp(app);
-            state.preferredApp = app;
+            state.application = ApplicationOf(state.type.c_str());
             state.hasTemplate = std::find(templateTypes.begin(), templateTypes.end(), state.type) != templateTypes.end();
             types.push_back(state);
         }
