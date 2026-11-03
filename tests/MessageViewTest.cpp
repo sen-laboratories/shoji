@@ -264,7 +264,8 @@ TestControls(TestWindow* w)
     CHECK(tags != NULL && tags->ListText() == "x;y");
     CHECK(w->view->ControlFor("blob") != NULL);                                    // a line with a note
     CHECK(dynamic_cast<BControl*>(w->view->ControlFor("blob")) == NULL);
-    CHECK(dynamic_cast<BControl*>(w->view->ControlFor("accent")) == NULL);
+    // a colour is a text now (#rrggbb: SenMessagePath.h); a control of its own is for later
+    CHECK(TextField(w, "accent") != NULL && strcmp(TextField(w, "accent")->Text(), "#0a141e") == 0);
     CHECK(w->view->ControlFor("nested") == NULL);                                // a node, not a field
 }
 

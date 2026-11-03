@@ -26,12 +26,15 @@
 #include <sen/SenSettingsForm.h>
 
 #include "../app/ShojiApp.h"
+#include "ShojiMessageInspector.h"
 #include "ShojiMessageView.h"
 
 namespace form = sen::settings::form;
 
 static const uint32 kMsgRevert = 'SMrv';
 static const uint32 kMsgDefaults = 'SMdf';
+static const uint32 kMsgViewForm = 'SMvf';
+static const uint32 kMsgViewInspector = 'SMvi';
 static const off_t kMaxMessageFile = 8 * 1024 * 1024;
 
 ShojiMessageWindow::ShojiMessageWindow(const entry_ref& ref, const BMessage& data)
@@ -43,7 +46,12 @@ ShojiMessageWindow::ShojiMessageWindow(const entry_ref& ref, const BMessage& dat
     fView(NULL),
     fMenuBar(NULL),
     fRevertButton(NULL),
-    fDefaultsButton(NULL)
+    fDefaultsButton(NULL),
+    fInspector(NULL),
+    fOriginal(data),
+    fShowingInspector(false),
+    fFormItem(NULL),
+    fInspectorItem(NULL)
 {
     // (a file that cannot be written is shown, not edited)
     BVolume volume(fRef.device);
@@ -64,11 +72,25 @@ ShojiMessageWindow::ShojiMessageWindow(const entry_ref& ref, const BMessage& dat
     menu->AddItem(quit);
     fMenuBar->AddItem(menu);
 
+    // the same data as a form that a person fills in, or as the inspector that shows every value with its type
+    BMenu* viewMenu = new BMenu("View");
+    fFormItem = new BMenuItem("Form", new BMessage(kMsgViewForm), 'F');
+    fInspectorItem = new BMenuItem("Inspector", new BMessage(kMsgViewInspector), 'I');
+    fFormItem->SetMarked(true);
+    viewMenu->AddItem(fFormItem);
+    viewMenu->AddItem(fInspectorItem);
+    fMenuBar->AddItem(viewMenu);
+
     fView = new ShojiMessageView();
     fView->SetRootLabel(ref.name);
     fView->SetTarget(BMessenger(this));
     fView->SetEditable(fWritable);
     fView->SetData(data);
+
+    fInspector = new ShojiMessageInspector();
+    fInspector->SetTarget(BMessenger(this));
+    fInspector->SetEditable(fWritable);
+    fInspector->SetData(data);
 
     fRevertButton = new BButton("revert", "Revert", new BMessage(kMsgRevert));
     fDefaultsButton = new BButton("defaults", "Defaults", new BMessage(kMsgDefaults));
@@ -77,6 +99,7 @@ ShojiMessageWindow::ShojiMessageWindow(const entry_ref& ref, const BMessage& dat
     BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
         .Add(fMenuBar)
         .Add(fView)
+        .Add(fInspector)
         .AddGroup(B_HORIZONTAL, spacing)
             .SetInsets(spacing)
             .AddGlue()
@@ -84,6 +107,7 @@ ShojiMessageWindow::ShojiMessageWindow(const entry_ref& ref, const BMessage& dat
             .Add(fRevertButton)
         .End();
 
+    fInspector->Hide();
     if (!fView->HasDefaults())
         fDefaultsButton->Hide();
     _UpdateButtons();
@@ -132,10 +156,21 @@ void ShojiMessageWindow::MessageReceived(BMessage* message)
             break;
         }
         case kMsgRevert:
-            fView->Revert();
+            // (the file as it was opened, shown in whichever view is there, and written)
+            _Show(fOriginal);
+            _Save();
+            _UpdateButtons();
+            _UpdateTitle();
             break;
         case kMsgDefaults:
-            fView->Defaults();
+            if (!fShowingInspector)
+                fView->Defaults();
+            break;
+        case kMsgViewForm:
+            ShowInspector(false);
+            break;
+        case kMsgViewInspector:
+            ShowInspector(true);
             break;
         default:
             BWindow::MessageReceived(message);
@@ -148,6 +183,7 @@ void ShojiMessageWindow::MessageReceived(BMessage* message)
 bool ShojiMessageWindow::QuitRequested()
 {
     fView->CommitPending();
+    fInspector->CommitPending();
     return true;
 }
 
@@ -155,8 +191,10 @@ bool ShojiMessageWindow::QuitRequested()
 void ShojiMessageWindow::WindowActivated(bool active)
 {
     BWindow::WindowActivated(active);
-    if (!active)
+    if (!active) {
         fView->CommitPending();
+        fInspector->CommitPending();
+    }
 }
 
 
@@ -168,7 +206,7 @@ status_t ShojiMessageWindow::_Save()
         return B_NOT_ALLOWED;
 
     BMallocIO buffer;
-    status_t result = fView->Settings().Flatten(&buffer);
+    status_t result = _Current().Flatten(&buffer);
     if (result != B_OK)
         return result;
 
@@ -187,10 +225,50 @@ status_t ShojiMessageWindow::_Save()
 }
 
 
+const BMessage& ShojiMessageWindow::_Current() const
+{
+    return fShowingInspector ? fInspector->Settings() : fView->Settings();
+}
+
+
+// the data into the view that is shown
+void ShojiMessageWindow::_Show(const BMessage& data)
+{
+    if (fShowingInspector)
+        fInspector->SetData(data);
+    else
+        fView->SetData(data);
+}
+
+
+void ShojiMessageWindow::ShowInspector(bool inspector)
+{
+    if (inspector == fShowingInspector)
+        return;
+    // what is typed is kept first; the other view gets the data as it is now
+    fView->CommitPending();
+    fInspector->CommitPending();
+    const BMessage data(_Current());
+    fShowingInspector = inspector;
+    _Show(data);
+
+    if (inspector) {
+        fView->Hide();
+        fInspector->Show();
+    } else {
+        fInspector->Hide();
+        fView->Show();
+    }
+    fFormItem->SetMarked(!inspector);
+    fInspectorItem->SetMarked(inspector);
+    fDefaultsButton->SetEnabled(fWritable && !inspector);
+}
+
+
 void ShojiMessageWindow::_UpdateButtons()
 {
-    fRevertButton->SetEnabled(fWritable && fView->IsModified());
-    fDefaultsButton->SetEnabled(fWritable);
+    fRevertButton->SetEnabled(fWritable && !_Current().HasSameData(fOriginal, true, true));
+    fDefaultsButton->SetEnabled(fWritable && !fShowingInspector);
 }
 
 
