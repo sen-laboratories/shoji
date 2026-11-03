@@ -68,6 +68,11 @@ public:
     /** the number of nodes in the tree (0: no tree is shown) */
     int32                   CountNodes() const;
 
+    /** The form as a replicant (SenSettingsFormHost.h): the stub of an archive has the class and the signature of Shoji, and `instantiate_object()` in another
+     *  program loads the class from the executable of Shoji. Defined in the source file, not here: an inline function is not exported and the load fails. */
+    static BArchivable*     Instantiate(BMessage* archive);
+    virtual status_t        Archive(BMessage* archive, bool deep = true) const;
+
     virtual void            AttachedToWindow();
     virtual void            MessageReceived(BMessage* message);
 
@@ -96,6 +101,8 @@ private:
     void                    _Show(const std::string& path);
     void                    _ShowList(const std::string& node, const std::string& name);
     void                    _Changed(const char* path, const char* value);
+    void                    _HandleSetData(BMessage* message);
+    void                    _Reply(BMessage* message, status_t result);
 
     BMessage                fOriginal;
     BMessage                fWorking;

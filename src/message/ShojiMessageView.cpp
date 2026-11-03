@@ -250,6 +250,28 @@ ShojiMessageView::ShojiMessageView(const char* name)
 }
 
 
+// The form is made from data, so it archives as a stub: what is needed to load the class (see SenSettingsFormHost.h).
+BArchivable* ShojiMessageView::Instantiate(BMessage* archive)
+{
+    if (!validate_instantiation(archive, form::kViewClass))
+        return NULL;
+    return new ShojiMessageView(archive->GetString("_name", "message view"));
+}
+
+
+status_t ShojiMessageView::Archive(BMessage* archive, bool deep) const
+{
+    status_t result = BArchivable::Archive(archive, false);
+    if (result == B_OK) {
+        archive->RemoveName("add_on");
+        result = archive->AddString("add_on", form::kShojiSignature);
+    }
+    if (result == B_OK)
+        result = archive->AddString("_name", Name());
+    return result;
+}
+
+
 ShojiMessageView::~ShojiMessageView()
 {
     // the items of the tree are ours, the views are the window's
@@ -439,6 +461,26 @@ void ShojiMessageView::MessageReceived(BMessage* message)
                 _ApplyList(node, name);
             break;
         }
+        case form::kSetData:
+            _HandleSetData(message);
+            break;
+        case form::kGetData:
+        {
+            BMessage reply(B_REPLY);
+            reply.AddMessage(form::kFieldSettings, &fWorking);
+            reply.AddInt32(form::kFieldProtocol, form::kProtocol);
+            reply.AddInt32(form::kFieldResult, B_OK);
+            if (message->IsSourceWaiting())
+                message->SendReply(&reply);
+            break;
+        }
+        case form::kRevert:
+            Revert();
+            _Reply(message, B_OK);
+            break;
+        case form::kDefaults:
+            _Reply(message, Defaults());
+            break;
         case kMsgNumber:
         {
             const char* path;
@@ -1091,6 +1133,56 @@ void ShojiMessageView::_ShowList(const std::string& node, const std::string& nam
         }
     }
     list->SetListText(sen::list::Join(texts, kListSeparator).c_str());
+}
+
+
+// the data of the owner: `settings`, and the optional schema, defaults, target, editable and root_label (SenSettingsForm.h)
+void ShojiMessageView::_HandleSetData(BMessage* message)
+{
+    BMessenger target;
+    message->FindMessenger(form::kFieldTarget, &target);
+
+    // a protocol that is newer than this form: not guessed at, the owner is told
+    const int32 protocol = message->GetInt32(form::kFieldProtocol, form::kProtocol);
+    BMessage settings;
+    status_t result = protocol > form::kProtocol ? B_NOT_SUPPORTED : message->FindMessage(form::kFieldSettings, &settings);
+    if (result != B_OK) {
+        if (result != B_NOT_SUPPORTED)
+            result = B_BAD_VALUE;
+        if (target.IsValid()) {
+            BMessage refused(form::kRefused);
+            refused.AddInt32(form::kFieldStatus, result);
+            refused.AddString(form::kFieldDetail, result == B_NOT_SUPPORTED ? "The form does not know this protocol." : "The data has no settings.");
+            refused.AddInt32(form::kFieldProtocol, form::kProtocol);
+            target.SendMessage(&refused);
+        }
+        _Reply(message, result);
+        return;
+    }
+
+    BMessage schema, defaults;
+    const bool hasSchema = message->FindMessage(form::kFieldSchema, &schema) == B_OK;
+    const bool hasDefaults = message->FindMessage(form::kFieldDefaults, &defaults) == B_OK;
+    SetTarget(target);
+    const char* rootLabel;
+    if (message->FindString(form::kFieldRootLabel, &rootLabel) == B_OK) {
+        fRootLabel = rootLabel;
+    }
+    fEditable = message->GetBool(form::kFieldEditable, true);
+    SetData(settings, hasSchema ? &schema : NULL, hasDefaults ? &defaults : NULL);
+    _Reply(message, B_OK);
+}
+
+
+// answers a message that is waited for
+void ShojiMessageView::_Reply(BMessage* message, status_t result)
+{
+    if (!message->IsSourceWaiting())
+        return;
+    BMessage reply(B_REPLY);
+    reply.AddInt32(form::kFieldResult, result);
+    reply.AddInt32(form::kFieldProtocol, form::kProtocol);
+    message->SendReply(&reply);
 }
 
 
