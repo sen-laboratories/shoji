@@ -867,7 +867,13 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
             ValueSlider* slider = new ValueSlider(path.c_str(), changed, low, step, (int32)positions, decimals);
             slider->SetNumber(number);
             slider->SetEnabled(fEditable);
-            slider->SetLimitLabels(detail::NumberText(low).c_str(), detail::NumberText(high).c_str());
+            const char* minLabel = NULL;
+            if (attributes.FindString(form::kAttrMinLabel, &minLabel) != B_OK || minLabel == NULL)
+                minLabel = NULL;
+            const char* maxLabel = NULL;
+            if (attributes.FindString(form::kAttrMaxLabel, &maxLabel) != B_OK)
+                maxLabel = NULL;
+            slider->SetLimitLabels(minLabel != NULL ? minLabel : detail::NumberText(low).c_str(), maxLabel != NULL ? maxLabel : detail::NumberText(high).c_str());
             slider->SetHashMarks(B_HASH_MARKS_BOTTOM);
             slider->SetHashMarkCount((int32)std::min(positions, 10.0) + 1);
             slider->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
