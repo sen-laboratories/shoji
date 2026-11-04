@@ -4,7 +4,10 @@
  */
 
 #include <CheckBox.h>
+#include <Font.h>
+#include <InterfaceDefs.h>
 #include <TextControl.h>
+#include <TextView.h>
 #include <fs_attr.h>
 
 #include <cerrno>
@@ -19,6 +22,8 @@
 
 #include "ShojiAttributes.h"
 #include "ShojiDateControl.h"
+#include "ShojiDuration.h"
+#include "ShojiDurationControl.h"
 #include "ShojiListControl.h"
 
 namespace shoji {
@@ -348,6 +353,13 @@ status_t StoreAttribute(BNode& node, const ShojiAttribute& attr, const char* tex
     if (attr.type != B_STRING_TYPE)
         value.Trim();
 
+    // a duration is an ISO 8601 text: what the user typed as a clock time has been made one, anything else is no value for it
+    if (attr.type == B_STRING_TYPE && IsDurationAttribute(attr.name.String())) {
+        value.Trim();
+        if (!value.IsEmpty() && !IsIsoDuration(value.String()))
+            return B_BAD_VALUE;
+    }
+
     // an empty value is no value: do not leave empty attributes behind
     if (value.IsEmpty() && attr.type != B_BOOL_TYPE) {
         status_t status = node.RemoveAttr(attr.name.String());
@@ -422,6 +434,10 @@ bool GetControlValue(BView* view, BString* text)
         *text = list->ListText();
         return true;
     }
+    if (ShojiDurationControl* duration = dynamic_cast<ShojiDurationControl*>(view)) {
+        *text = duration->Duration();
+        return true;
+    }
     if (BTextControl* textControl = dynamic_cast<BTextControl*>(view)) {
         text->SetTo(textControl->Text());
         return true;
@@ -445,6 +461,11 @@ bool SetControlValue(BView* view, const char* text)
             list->SetListText(text);
         return true;
     }
+    if (ShojiDurationControl* duration = dynamic_cast<ShojiDurationControl*>(view)) {
+        // (SetDuration() shows the clock time, and does nothing if that is what is shown: what was typed as 1:55:00 becomes 01:55:00 once it is stored)
+        duration->SetDuration(text);
+        return true;
+    }
     if (BTextControl* textControl = dynamic_cast<BTextControl*>(view)) {
         // leave the caret alone if there is nothing to change
         if (strcmp(textControl->Text(), text) != 0)
@@ -461,6 +482,32 @@ bool SetControlValue(BView* view, const char* text)
         return true;
     }
     return false;
+}
+
+
+void SetControlEditable(BControl* control, bool editable)
+{
+    BTextControl* textControl = dynamic_cast<BTextControl*>(control);
+    if (textControl == NULL) {
+        control->SetEnabled(editable);
+        return;
+    }
+    // (the colours of a disabled BTextControl: see BTextControl::_UpdateTextViewColors)
+    BTextView* view = textControl->TextView();
+    view->MakeEditable(editable);
+    const rgb_color panel = ui_color(B_PANEL_BACKGROUND_COLOR);
+    rgb_color text = ui_color(B_DOCUMENT_TEXT_COLOR);
+    rgb_color background = ui_color(B_DOCUMENT_BACKGROUND_COLOR);
+    if (!editable) {
+        text = mix_color(text, panel, 128);
+        background = mix_color(background, panel, 128);
+    }
+    BFont font;
+    view->GetFontAndColor(0, &font);
+    view->SetFontAndColor(&font, B_FONT_ALL, &text);
+    view->SetViewColor(background);
+    view->SetLowColor(background);
+    view->Invalidate();
 }
 
 }   // namespace shoji

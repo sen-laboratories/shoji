@@ -5,7 +5,9 @@
 
 #include "ShojiDateControl.h"
 
+#include <ControlLook.h>
 #include <DateTime.h>
+#include <Font.h>
 
 #include <stdio.h>
 
@@ -30,8 +32,11 @@ void ShojiDateControl::AttachedToWindow()
     BPrivate::DateEdit::AttachedToWindow();
     if (fHasDate)
         SetDate(fYear, fMonth, fDay);
-    // as wide as the date needs: it is no field to stretch
-    const BSize size = PreferredSize();
+    // as wide as the date needs: it is no field to stretch. The year has four digits (the control makes room for what it shows at first, and the arrows sit over the last field).
+    BSize size = PreferredSize();
+    const float wanted = StringWidth("00.00.0000") + 2 * be_control_look->DefaultLabelSpacing() + be_plain_font->Size() * 2;
+    if (size.width < wanted)
+        size.width = wanted;
     SetExplicitMinSize(size);
     SetExplicitMaxSize(size);
 }

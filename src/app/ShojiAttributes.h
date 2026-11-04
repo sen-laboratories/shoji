@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <Control.h>
 #include <Message.h>
 #include <Node.h>
 #include <String.h>
@@ -74,5 +75,9 @@ status_t    RestoreAttribute(BNode& node, const char* name, const ShojiAttribute
 // the value of a control as text (check boxes: "1" or "0"), false if the control is not supported.
 bool        GetControlValue(BView* view, BString* text);
 bool        SetControlValue(BView* view, const char* text);
+
+// A control that shows a value that cannot be changed. A text field is not disabled (that would grey its label, too, and a label is always readable): it cannot be edited and
+// has the look of a disabled field. The other controls are disabled.
+void        SetControlEditable(BControl* control, bool editable);
 
 }   // namespace shoji

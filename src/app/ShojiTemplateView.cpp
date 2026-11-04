@@ -203,7 +203,7 @@ status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMes
             continue;
 
         if (BControl* control = dynamic_cast<BControl*>(view))
-            control->SetEnabled(attr.editable);
+            shoji::SetControlEditable(control, attr.editable);
     }
 
     return B_OK;

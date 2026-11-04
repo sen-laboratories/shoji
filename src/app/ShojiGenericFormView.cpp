@@ -16,6 +16,8 @@
 #include <cstring>
 
 #include "ShojiDateControl.h"
+#include "ShojiDuration.h"
+#include "ShojiDurationControl.h"
 #include "ShojiGenericFormView.h"
 #include "ShojiListControl.h"
 
@@ -101,6 +103,11 @@ BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, co
         ShojiDateControl* date = new ShojiDateControl(attr.name.String());
         date->SetDateText(text);
         control = date;
+    } else if (attr.type == B_STRING_TYPE && shoji::IsDurationAttribute(attr.name.String())) {
+        // an ISO 8601 duration (PT2H) is shown and typed as a clock time (02:00:00)
+        ShojiDurationControl* duration = new ShojiDurationControl(attr.name.String(), attr.label.String());
+        duration->SetDuration(text);
+        control = duration;
     } else if (attr.type == B_BOOL_TYPE) {
         BCheckBox* checkBox = new BCheckBox(attr.name.String(), attr.label.String(), NULL);
         checkBox->SetValue(strcmp(text, "1") == 0 ? B_CONTROL_ON : B_CONTROL_OFF);
@@ -112,7 +119,7 @@ BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, co
         note << attr.name << "' is not supported)";
         control = new BTextControl(attr.name.String(), attr.label.String(), note.String(), NULL);
     }
-    control->SetEnabled(attr.editable);
+    shoji::SetControlEditable(control, attr.editable);
 
     return control;
 }
