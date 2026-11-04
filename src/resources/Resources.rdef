@@ -14,7 +14,7 @@ resource app_version {
 	   3 = gamma		4 = golden master	5 = final */
 	variety = 2,
 
-	internal = 4,
+	internal = 5,
 
 	short_info = "Shoji Entity Editor",
 	long_info  = "a flexible template based entity viewer and editor"
