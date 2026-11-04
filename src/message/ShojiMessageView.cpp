@@ -991,12 +991,16 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
 
     BMessage* kept = new BMessage(kMsgText);
     kept->AddString("path", path.c_str());
-    BTextControl* textControl = new BTextControl(path.c_str(), label.c_str(), text.c_str(), kept);
+    // a password field is made as the E-mail preferences make theirs: HideTyping() first, because it empties the field, then the text, which shows as bullets
+    const bool secret = kind == form::kKindSecret;
+    BTextControl* textControl = new BTextControl(path.c_str(), label.c_str(), secret ? "" : text.c_str(), kept);
     // a field is wide enough to edit in
     textControl->TextView()->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
     textControl->TextView()->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
-    if (kind == form::kKindSecret)
+    if (secret) {
         textControl->TextView()->HideTyping(true);
+        textControl->SetText(text.c_str());
+    }
     textControl->SetEnabled(fEditable);
     if (help != NULL)
         textControl->SetToolTip(help);
