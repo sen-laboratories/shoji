@@ -98,13 +98,29 @@ public:
 
     void SetNumber(double number) { SetValue((int32)floor((number - fMinimum) / fStep + 0.5)); }
 
+    /** The text that the schema gives for the ends of the track (`min_label`, `max_label`): shown instead of the number when the thumb is at that end. */
+    void SetEndTexts(const char* atMinimum, const char* atMaximum)
+    {
+        fAtMinimum = atMinimum != NULL ? atMinimum : "";
+        fAtMaximum = atMaximum != NULL ? atMaximum : "";
+    }
+
     virtual const char* UpdateText() const
     {
-        fText = ValueText();
+        int32 lowest = 0, highest = 0;
+        GetLimits(&lowest, &highest);
+        if (Value() <= lowest && !fAtMinimum.empty())
+            fText = fAtMinimum;
+        else if (Value() >= highest && !fAtMaximum.empty())
+            fText = fAtMaximum;
+        else
+            fText = ValueText();
         return fText.c_str();
     }
 
 private:
+    std::string         fAtMinimum;
+    std::string         fAtMaximum;
     double              fMinimum;
     double              fStep;
     int32               fDecimals;
@@ -867,13 +883,13 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
             ValueSlider* slider = new ValueSlider(path.c_str(), changed, low, step, (int32)positions, decimals);
             slider->SetNumber(number);
             slider->SetEnabled(fEditable);
+            slider->SetLimitLabels(detail::NumberText(low).c_str(), detail::NumberText(high).c_str());
+            // (the value above the thumb says "None" or "All" at the ends of the track, if the schema has texts for them)
             const char* minLabel = NULL;
-            if (attributes.FindString(form::kAttrMinLabel, &minLabel) != B_OK || minLabel == NULL)
-                minLabel = NULL;
             const char* maxLabel = NULL;
-            if (attributes.FindString(form::kAttrMaxLabel, &maxLabel) != B_OK)
-                maxLabel = NULL;
-            slider->SetLimitLabels(minLabel != NULL ? minLabel : detail::NumberText(low).c_str(), maxLabel != NULL ? maxLabel : detail::NumberText(high).c_str());
+            attributes.FindString(form::kAttrMinLabel, &minLabel);
+            attributes.FindString(form::kAttrMaxLabel, &maxLabel);
+            slider->SetEndTexts(minLabel, maxLabel);
             slider->SetHashMarks(B_HASH_MARKS_BOTTOM);
             slider->SetHashMarkCount((int32)std::min(positions, 10.0) + 1);
             slider->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
