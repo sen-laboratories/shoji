@@ -11,6 +11,8 @@
 
 #include <stdio.h>
 
+#include <algorithm>
+
 ShojiDateControl::ShojiDateControl(const char* name, BMessage* message)
     :
     BPrivate::DateEdit(name, 3, message),
@@ -47,22 +49,28 @@ void ShojiDateControl::DrawBorder(const BRect& updateRect)
     // the border, the field and the areas that the mouse hits (the base class makes them), then the arrows over its thin ones
     BPrivate::DateEdit::DrawBorder(updateRect);
 
-    BRect bounds(Bounds());
-    bounds.left = bounds.right - 16;		// (the width of the area of the arrows)
-    bounds.right = Bounds().right - 2;
-    BRect up(bounds.left + 3, bounds.top + 2, bounds.right, bounds.bottom / 2.0);
-    BRect down = up.OffsetByCopy(0, up.Height() + 2);
+    // The arrows are those that the list view of Tracker and of the settings window has (BOutlineListView::DrawLatch()): the filled triangles of BControlLook::DrawArrowShape(),
+    // the colour of the panel as the base and a dark tint (a light one on a dark panel). Each is in its half of the area at the right, inside the border, and not larger than that.
+    const BRect inner = Bounds().InsetByCopy(2, 2);
+    const BRect area(inner.right - 13, inner.top, inner.right, inner.bottom);
+    const float half = floorf(area.Height() / 2);
+    const float side = std::max(4.0f, std::min(std::min(half - 2, area.Width() - 2), floorf(be_plain_font->Size() * 0.7f)));
 
     // (DrawArrowShape() sets the colour of the pen to that of the arrow, and the sections are drawn with the pen of the view: the state is put back)
     PushState();
     SetLowUIColor(B_DOCUMENT_BACKGROUND_COLOR);
-    FillRect(up.InsetByCopy(-1, -1) | down.InsetByCopy(-1, -1), B_SOLID_LOW);
+    FillRect(area, B_SOLID_LOW);
 
-    // (as the latch of a list in Tracker: the colour of the panel as the base, a dark tint of it)
     const rgb_color base = ui_color(B_PANEL_BACKGROUND_COLOR);
-    const float tint = IsEnabled() ? B_DARKEN_4_TINT : B_DARKEN_2_TINT;
-    up.InsetBy(-1, -1);
-    down.InsetBy(-1, -1);
+    float tint = IsEnabled() ? B_DARKEN_4_TINT : B_DARKEN_2_TINT;
+    if (base.red + base.green + base.blue <= 128 * 3)
+        tint = IsEnabled() ? B_LIGHTEN_2_TINT : B_DARKEN_1_TINT;
+
+    const float x = floorf(area.left + (area.Width() + 1 - side) / 2);
+    BRect up(x, floorf(area.top + (half - side) / 2), x + side - 1, 0);
+    up.bottom = up.top + side - 1;
+    BRect down(x, floorf(area.top + half + (area.Height() + 1 - half - side) / 2), x + side - 1, 0);
+    down.bottom = down.top + side - 1;
     be_control_look->DrawArrowShape(this, up, updateRect, base, BControlLook::B_UP_ARROW, 0, tint);
     be_control_look->DrawArrowShape(this, down, updateRect, base, BControlLook::B_DOWN_ARROW, 0, tint);
     PopState();
