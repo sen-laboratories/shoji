@@ -18,6 +18,11 @@ public:
 
     virtual void        AttachedToWindow();
 
+protected:
+    /** the border and the arrows: the arrows are the filled triangles that the other controls of the system have (the latch of a list, the buttons of a spinner), not the thin lines of the Time preferences */
+    virtual void        DrawBorder(const BRect& updateRect);
+
+public:
     /** @return false if the text is not a date (`YYYY-MM-DD`), the control is not changed */
     bool                SetDateText(const char* text);
     BString             DateText();

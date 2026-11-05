@@ -42,6 +42,33 @@ void ShojiDateControl::AttachedToWindow()
 }
 
 
+void ShojiDateControl::DrawBorder(const BRect& updateRect)
+{
+    // the border, the field and the areas that the mouse hits (the base class makes them), then the arrows over its thin ones
+    BPrivate::DateEdit::DrawBorder(updateRect);
+
+    BRect bounds(Bounds());
+    bounds.left = bounds.right - 16;		// (the width of the area of the arrows)
+    bounds.right = Bounds().right - 2;
+    BRect up(bounds.left + 3, bounds.top + 2, bounds.right, bounds.bottom / 2.0);
+    BRect down = up.OffsetByCopy(0, up.Height() + 2);
+
+    // (DrawArrowShape() sets the colour of the pen to that of the arrow, and the sections are drawn with the pen of the view: the state is put back)
+    PushState();
+    SetLowUIColor(B_DOCUMENT_BACKGROUND_COLOR);
+    FillRect(up.InsetByCopy(-1, -1) | down.InsetByCopy(-1, -1), B_SOLID_LOW);
+
+    // (as the latch of a list in Tracker: the colour of the panel as the base, a dark tint of it)
+    const rgb_color base = ui_color(B_PANEL_BACKGROUND_COLOR);
+    const float tint = IsEnabled() ? B_DARKEN_4_TINT : B_DARKEN_2_TINT;
+    up.InsetBy(-1, -1);
+    down.InsetBy(-1, -1);
+    be_control_look->DrawArrowShape(this, up, updateRect, base, BControlLook::B_UP_ARROW, 0, tint);
+    be_control_look->DrawArrowShape(this, down, updateRect, base, BControlLook::B_DOWN_ARROW, 0, tint);
+    PopState();
+}
+
+
 bool ShojiDateControl::IsDateText(const char* text)
 {
     int year, month, day, used = 0;

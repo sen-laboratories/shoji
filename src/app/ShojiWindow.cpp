@@ -145,6 +145,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     root->AddView(panel);
     fPanel = panel;
     ConnectControls();
+    ApplyReadOnly();
 
     // the window is as high as its form needs, not a fixed height: for the picture, and for the form to be centred on the line of the picture
     // (a third of the height) with its margin above and the button below
@@ -418,6 +419,16 @@ void ShojiWindow::ConnectControls()
         } else {
             delete commit;
         }
+    }
+}
+
+void ShojiWindow::ApplyReadOnly()
+{
+    for (const ShojiAttribute& attr : fAttrs) {
+        if (attr.editable)
+            continue;
+        if (BControl* control = dynamic_cast<BControl*>(FindControl(attr.name.String())))
+            shoji::SetControlEditable(control, false);
     }
 }
 
