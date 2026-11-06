@@ -57,5 +57,26 @@ int main(int argc, char** argv)
 
     window->Lock();
     window->Quit();
-    return left == 1 ? 0 : 1;
+
+    // the enlarged picture belongs to its window: it is gone when the window closes
+    BBitmap* full2 = BTranslationUtils::GetBitmap(argv[1]);
+    BBitmap* small2 = sen::ScaleDown(full2, 128);
+    BWindow* parent = new BWindow(BRect(300, 150, 700, 450), "enlarge test 2", B_TITLED_WINDOW, B_NOT_RESIZABLE | B_NOT_ZOOMABLE);
+    sen::StripeView* stripe2 = new sen::StripeView(small2, full2);
+    stripe2->SetExplicitMinSize(BSize(150, 300));
+    parent->AddChild(stripe2);
+    stripe2->ResizeTo(150, 300);
+    parent->Show();
+    snooze(500000);
+    parent->Lock();
+    stripe2->ToggleEnlarged();
+    parent->Unlock();
+    snooze(800000);
+    const int withPicture = be_app->CountWindows();
+    parent->Lock();
+    parent->Quit();
+    snooze(800000);
+    const int afterClosing = be_app->CountWindows();
+    printf("%d windows with the picture, %d after the window was closed (0 expected)\n", withPicture, afterClosing);
+    return left == 1 && withPicture == 2 && afterClosing == 0 ? 0 : 1;
 }

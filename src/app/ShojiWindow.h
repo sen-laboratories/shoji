@@ -40,6 +40,8 @@ class ShojiWindow : public BWindow
         bool                IsFileWritable() const;
         status_t            LoadAttributes(const BMessage* mimeAttrInfo, const BMessage* superTypeAttrInfo);
         void                ConnectControls();
+        /** the text fields of attributes that cannot be changed: not editable, greyed, their labels as they are. Only when the controls are attached: a text control makes itself editable then. */
+        void                ApplyReadOnly();
         BView*              FindControl(const char* name);
         const ShojiAttribute* FindAttribute(const char* name) const;
         bool                HasChanged(const char* name);

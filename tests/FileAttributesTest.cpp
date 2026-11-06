@@ -5,7 +5,7 @@
 
 // The attributes of a file as the form of a type without attributes of its own (a Markdown file) shows them: those that Shoji can edit, not the ones of the system,
 // the file manager and SEN, not raw data, not those that the type declares already. Build and run on Haiku:
-//   g++ -std=c++20 -Isrc/app -I/boot/home/config/non-packaged/develop/headers tests/FileAttributesTest.cpp src/app/ShojiAttributes.cpp src/app/ShojiListControl.cpp -o /tmp/fileattr-test -lbe && /tmp/fileattr-test
+//   g++ -std=c++20 -Isrc/app -I/boot/home/config/non-packaged/develop/headers -I/boot/system/develop/headers/private/shared tests/FileAttributesTest.cpp src/app/ShojiAttributes.cpp src/app/ShojiListControl.cpp src/app/ShojiDateControl.cpp -o /tmp/fileattr-test -lbe -lshared && /tmp/fileattr-test
 
 #include "ShojiAttributes.h"
 

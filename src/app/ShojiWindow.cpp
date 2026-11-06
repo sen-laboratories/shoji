@@ -38,6 +38,7 @@
 #include "ShojiView.h"
 #include "ShojiGenericFormView.h"
 #include "ShojiTemplateView.h"
+#include "ShojiDateControl.h"
 #include "ShojiListControl.h"
 
 static const char* kAttrThumbnail = "Media:Thumbnail";
@@ -144,6 +145,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     root->AddView(panel);
     fPanel = panel;
     ConnectControls();
+    ApplyReadOnly();
 
     // the window is as high as its form needs, not a fixed height: for the picture, and for the form to be centred on the line of the picture
     // (a third of the height) with its margin above and the button below
@@ -403,6 +405,10 @@ void ShojiWindow::ConnectControls()
         } else if (BCheckBox* checkBox = dynamic_cast<BCheckBox*>(view)) {
             checkBox->SetMessage(commit);
             checkBox->SetTarget(this);
+        } else if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
+            // every change of the date is complete
+            date->SetMessage(commit);
+            date->SetTarget(this);
         } else if (ShojiListControl* list = dynamic_cast<ShojiListControl*>(view)) {
             BMessage* edited = new BMessage(SHOJI_MSG_ATTR_EDITED);
             edited->AddString(SHOJI_FIELD_ATTR, attr.name.String());
@@ -413,6 +419,16 @@ void ShojiWindow::ConnectControls()
         } else {
             delete commit;
         }
+    }
+}
+
+void ShojiWindow::ApplyReadOnly()
+{
+    for (const ShojiAttribute& attr : fAttrs) {
+        if (attr.editable)
+            continue;
+        if (BControl* control = dynamic_cast<BControl*>(FindControl(attr.name.String())))
+            shoji::SetControlEditable(control, false);
     }
 }
 

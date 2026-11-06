@@ -15,13 +15,16 @@
 
 #include <cstring>
 
+#include "ShojiDateControl.h"
+#include "ShojiDuration.h"
+#include "ShojiDurationControl.h"
 #include "ShojiGenericFormView.h"
 #include "ShojiListControl.h"
 
 /*
  * generic dynamic view to use when no MIME specific view is available for the source file.
  * Builds a form with a control for each attribute of the MIME type, according to the type of the attribute:
- * a check box for booleans, a text field for everything else. The controls are named after their attribute.
+ * a check box for booleans, the date control for a date, a text field for everything else. The controls are named after their attribute.
  */
 ShojiGenericFormView::ShojiGenericFormView() : ShojiView()
 {
@@ -57,6 +60,11 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
             label->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_TOP));
             layout->AddView(label, 0, row);
             layout->AddView(list, 1, row);
+        } else if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(control)) {
+            // the date control has no label of its own: the label on the left, the control as wide as it needs
+            date->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+            layout->AddView(new BStringView("label", attr.label.String()), 0, row);
+            layout->AddView(date, 1, row);
         } else if (BTextControl* textControl = dynamic_cast<BTextControl*>(control)) {
             // label and field in two columns, aligned over all rows; a field is wide enough to edit in
             textControl->TextView()->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
@@ -90,6 +98,16 @@ BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, co
         ShojiListControl* list = new ShojiListControl(attr.name.String(), attr.list.separator);
         list->SetListText(text);
         control = list;
+    } else if (attr.type == B_TIME_TYPE && ShojiDateControl::IsDateText(text)) {
+        // a date (midnight UTC), as in the form of a message: the date control of the Time preferences; a time of day, or no value, is typed
+        ShojiDateControl* date = new ShojiDateControl(attr.name.String());
+        date->SetDateText(text);
+        control = date;
+    } else if (attr.type == B_STRING_TYPE && shoji::IsDurationAttribute(attr.name.String())) {
+        // an ISO 8601 duration (PT2H) is shown and typed as a clock time (02:00:00)
+        ShojiDurationControl* duration = new ShojiDurationControl(attr.name.String(), attr.label.String());
+        duration->SetDuration(text);
+        control = duration;
     } else if (attr.type == B_BOOL_TYPE) {
         BCheckBox* checkBox = new BCheckBox(attr.name.String(), attr.label.String(), NULL);
         checkBox->SetValue(strcmp(text, "1") == 0 ? B_CONTROL_ON : B_CONTROL_OFF);
@@ -101,7 +119,7 @@ BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, co
         note << attr.name << "' is not supported)";
         control = new BTextControl(attr.name.String(), attr.label.String(), note.String(), NULL);
     }
-    control->SetEnabled(attr.editable);
+    shoji::SetControlEditable(control, attr.editable);
 
     return control;
 }
