@@ -935,6 +935,8 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         BGroupView* group = new BGroupView(path.c_str(), B_VERTICAL, 0);
         for (int32 i = 0; i < choiceCount; i++) {
             const char* value = attributes.GetString(form::kAttrChoices, i, "");
+            if (strcmp(value, form::kChoiceSeparator) == 0)
+                continue;
             const char* shownAs = attributes.GetString(form::kAttrChoiceLabels, i, value);
             BMessage* chosen = new BMessage(kMsgChoice);
             chosen->AddString("path", path.c_str());
@@ -962,6 +964,11 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         bool found = false;
         for (int32 i = 0; i < choiceCount; i++) {
             const char* value = attributes.GetString(form::kAttrChoices, i, "");
+            // a choice "-" is a line between the choices (the presets and the choice of one's own)
+            if (strcmp(value, form::kChoiceSeparator) == 0) {
+                menu->AddSeparatorItem();
+                continue;
+            }
             const char* shownAs = attributes.GetString(form::kAttrChoiceLabels, i, value);
             BMessage* chosen = new BMessage(kMsgChoice);
             chosen->AddString("path", path.c_str());

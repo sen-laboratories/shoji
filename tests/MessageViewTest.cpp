@@ -23,6 +23,7 @@
 #include <ListView.h>
 #include <MenuField.h>
 #include <MenuItem.h>
+#include <SeparatorItem.h>
 #include <RadioButton.h>
 #include <Slider.h>
 #include <Spinner.h>
@@ -589,6 +590,7 @@ TestEnabledWhen(TestWindow* w)
     schema.AddInt32(form::kSchemaVersion, 1);
     mirror.AddString(form::kAttrKind, form::kKindChoice);
     mirror.AddString(form::kAttrChoices, "default");
+    mirror.AddString(form::kAttrChoices, form::kChoiceSeparator);
     mirror.AddString(form::kAttrChoices, "custom");
     mirror.AddInt32(form::kAttrOrder, 0);
     address.AddString(form::kAttrEnabledWhen, "mirror=custom");
@@ -608,7 +610,8 @@ TestEnabledWhen(TestWindow* w)
     CHECK(menu != NULL && menu->IsEnabled());
     CHECK(field != NULL && !field->IsEnabled() && secret != NULL && !secret->IsEnabled());		// (the default server is chosen)
 
-    BMessage chosen(*menu->Menu()->ItemAt(1)->Message());			// "custom"
+    CHECK(dynamic_cast<BSeparatorItem*>(menu->Menu()->ItemAt(1)) != NULL);			// (the line between the servers and the custom mirror)
+    BMessage chosen(*menu->Menu()->ItemAt(2)->Message());			// "custom"
     w->view->MessageReceived(&chosen);
     w->Settle();
     field = TextField(w, "address");
@@ -641,7 +644,7 @@ TestEnabledWhen(TestWindow* w)
     w->Settle();
     CHECK(!TextField(w, "key")->IsEnabled());
     BMenuField* menu2 = dynamic_cast<BMenuField*>(w->view->ControlFor("mirror"));
-    BMessage custom(*menu2->Menu()->ItemAt(1)->Message());
+    BMessage custom(*menu2->Menu()->ItemAt(2)->Message());
     w->view->MessageReceived(&custom);
     w->Settle();
     CHECK(!TextField(w, "key")->IsEnabled());			// (custom, but the flag is not set)
