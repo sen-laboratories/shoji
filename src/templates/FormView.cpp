@@ -18,6 +18,17 @@ FormView::FormView(const char* name) : BGridView(be_control_look->DefaultItemSpa
     GridLayout()->SetInsets(0, 0, 0, 0);
 }
 
+FormView::FormView(BMessage* archive) : BGridView(archive), fRows(0)
+{
+}
+
+BArchivable* FormView::Instantiate(BMessage* archive)
+{
+    if (!validate_instantiation(archive, "FormView"))
+        return NULL;
+    return new FormView(archive);
+}
+
 FormView::~FormView()
 {
 }
