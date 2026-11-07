@@ -578,6 +578,59 @@ TestNoTree()
     w->Quit();
 }
 
+// A field with `enabled_when` ("key=value") can be edited only while another field has that value: the address and the key of a custom mirror (the spatial navigator).
+static void
+TestEnabledWhen(TestWindow* w)
+{
+    BMessage settings, schema, mirror, address, key;
+    settings.AddString("mirror", "default");
+    settings.AddString("address", "");
+    settings.AddString("key", "");
+    schema.AddInt32(form::kSchemaVersion, 1);
+    mirror.AddString(form::kAttrKind, form::kKindChoice);
+    mirror.AddString(form::kAttrChoices, "default");
+    mirror.AddString(form::kAttrChoices, "custom");
+    mirror.AddInt32(form::kAttrOrder, 0);
+    address.AddString(form::kAttrEnabledWhen, "mirror=custom");
+    address.AddInt32(form::kAttrOrder, 1);
+    key.AddString(form::kAttrEnabledWhen, "mirror=custom");
+    key.AddString(form::kAttrKind, form::kKindSecret);
+    key.AddInt32(form::kAttrOrder, 2);
+    schema.AddMessage("mirror", &mirror);
+    schema.AddMessage("address", &address);
+    schema.AddMessage("key", &key);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+
+    BMenuField* menu = dynamic_cast<BMenuField*>(w->view->ControlFor("mirror"));
+    BTextControl* field = TextField(w, "address");
+    BTextControl* secret = TextField(w, "key");
+    CHECK(menu != NULL && menu->IsEnabled());
+    CHECK(field != NULL && !field->IsEnabled() && secret != NULL && !secret->IsEnabled());		// (the default server is chosen)
+
+    BMessage chosen(*menu->Menu()->ItemAt(1)->Message());			// "custom"
+    w->view->MessageReceived(&chosen);
+    w->Settle();
+    field = TextField(w, "address");
+    secret = TextField(w, "key");
+    CHECK(w->Text("mirror") == "custom");
+    CHECK(field != NULL && field->IsEnabled() && secret != NULL && secret->IsEnabled());
+
+    BMessage back(*menu->Menu()->ItemAt(0)->Message());
+    w->view->MessageReceived(&back);
+    w->Settle();
+    CHECK(!TextField(w, "address")->IsEnabled() && !TextField(w, "key")->IsEnabled());
+
+    // revert: the choice is the one of the start again, and so is what is enabled
+    w->view->MessageReceived(&chosen);
+    w->Settle();
+    CHECK(TextField(w, "address")->IsEnabled());
+    w->view->Revert();
+    w->Settle();
+    CHECK(w->Text("mirror") == "default" && !TextField(w, "address")->IsEnabled());
+}
+
+
 int main(int argc, char** argv)
 {
     BApplication app("application/x-vnd.sen-labs.shoji-message-view-test");
@@ -623,6 +676,7 @@ int main(int argc, char** argv)
     TestNodes(window);
     TestRevertAndDefaults(window, original, defaults);
     TestReadOnly(window);
+    TestEnabledWhen(window);
     window->Quit();
     TestNoTree();
 
