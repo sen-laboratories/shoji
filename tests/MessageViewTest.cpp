@@ -628,6 +628,32 @@ TestEnabledWhen(TestWindow* w)
     w->view->Revert();
     w->Settle();
     CHECK(w->Text("mirror") == "default" && !TextField(w, "address")->IsEnabled());
+
+    // conditions: "or" of alternatives, "and" within one (a key is for a server that requires one: the listed ones, or the custom one that has the flag)
+    BMessage more(settings), moreSchema(schema), flag, keyOnly(key);
+    more.AddBool("flag", false);
+    flag.AddInt32(form::kAttrOrder, 3);
+    moreSchema.AddMessage("flag", &flag);
+    moreSchema.RemoveName("key");
+    keyOnly.ReplaceString(form::kAttrEnabledWhen, 0, "mirror=other|mirror=custom&flag=true");
+    moreSchema.AddMessage("key", &keyOnly);
+    w->view->SetData(more, &moreSchema, NULL);
+    w->Settle();
+    CHECK(!TextField(w, "key")->IsEnabled());
+    BMenuField* menu2 = dynamic_cast<BMenuField*>(w->view->ControlFor("mirror"));
+    BMessage custom(*menu2->Menu()->ItemAt(1)->Message());
+    w->view->MessageReceived(&custom);
+    w->Settle();
+    CHECK(!TextField(w, "key")->IsEnabled());			// (custom, but the flag is not set)
+    BCheckBox* box = dynamic_cast<BCheckBox*>(w->view->ControlFor("flag"));
+    box->SetValue(B_CONTROL_ON);
+    box->Invoke();
+    w->Settle();
+    CHECK(TextField(w, "key")->IsEnabled());			// (custom and flagged)
+    BMessage defaultAgain(*menu2->Menu()->ItemAt(0)->Message());
+    w->view->MessageReceived(&defaultAgain);
+    w->Settle();
+    CHECK(!TextField(w, "key")->IsEnabled());			// (the flag stays, the mirror is not custom)
 }
 
 

@@ -1141,7 +1141,8 @@ void ShojiMessageView::_Show(const std::string& path)
 }
 
 
-// A control whose schema has `enabled_when` ("key=value") is enabled while the field `key` of the same message has that value, and only if the form can be edited at all.
+// A control whose schema has `enabled_when` is enabled while the condition holds, and only if the form can be edited at all. The condition is `key=value` (the field `key` of the
+// same message has that value), several of them with `&` (all hold) and alternatives with `|` (one holds): `mode=custom&flag=true|mode=other`.
 void ShojiMessageView::_UpdateEnabled()
 {
     BMessage message;
@@ -1154,13 +1155,32 @@ void ShojiMessageView::_UpdateEnabled()
         const char* rule = NULL;
         if (attributes.FindString(form::kAttrEnabledWhen, &rule) != B_OK || rule == NULL)
             continue;
-        const char* equals = strchr(rule, '=');
-        if (equals == NULL)
-            continue;
-        const std::string other(rule, equals - rule);
-        const std::string wanted(equals + 1);
-        std::string have;
-        const bool enabled = fEditable && GetText(fWorking, ChildPath(fNode, other), &have) == B_OK && have == wanted;
+
+        bool enabled = false;
+        const std::string condition = rule;
+        for (size_t from = 0; from <= condition.size() && !enabled; ) {
+            size_t end = condition.find('|', from);
+            if (end == std::string::npos)
+                end = condition.size();
+            const std::string alternative = condition.substr(from, end - from);
+            from = end + 1;
+
+            bool all = !alternative.empty();
+            for (size_t start = 0; start <= alternative.size() && all; ) {
+                size_t stop = alternative.find('&', start);
+                if (stop == std::string::npos)
+                    stop = alternative.size();
+                const std::string term = alternative.substr(start, stop - start);
+                start = stop + 1;
+                const size_t equals = term.find('=');
+                std::string have;
+                all = equals != std::string::npos
+                    && GetText(fWorking, ChildPath(fNode, term.substr(0, equals)), &have) == B_OK && have == term.substr(equals + 1);
+            }
+            enabled = all;
+        }
+        enabled = enabled && fEditable;
+
         BView* control = ControlFor(ChildPath(fNode, known[i].name).c_str());
         if (BControl* each = dynamic_cast<BControl*>(control))
             each->SetEnabled(enabled);
