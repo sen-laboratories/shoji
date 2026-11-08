@@ -300,8 +300,9 @@ void PlaceMapView::MouseDown(BPoint where)
     const std::string pluginDefault = shoji::Settings::PluginMapStyle();
     BPopUpMenu* menu = new BPopUpMenu("map style", false, false);
     {
-        BString label("Default (");
-        label << sen::mapstyles::Get(pluginDefault).label << ")";
+        // ("Default: Humanitarian (warm, clear)": the label of a style has brackets itself)
+        BString label("Default: ");
+        label << sen::mapstyles::Get(pluginDefault).label;
         BMessage* choice = new BMessage(kStyleChosen);
         choice->AddString("style", "");
         BMenuItem* item = new BMenuItem(label.String(), choice);
