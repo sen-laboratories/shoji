@@ -11,13 +11,19 @@
 #include <FindDirectory.h>
 #include <Font.h>
 #include <LayoutUtils.h>
+#include <MenuItem.h>
 #include <Message.h>
 #include <Path.h>
 #include <Polygon.h>
+#include <PopUpMenu.h>
 #include <String.h>
 #include <TranslationUtils.h>
 #include <sen/SenSocketHttp.h>
 #include <Window.h>
+
+#include <sen/SenMapStyles.h>
+
+#include "../../../app/ShojiSettings.h"
 
 #include <algorithm>
 #include <cmath>
@@ -40,15 +46,12 @@ const int kPointZoom = 15;				// a place that is a point only: its street
 const double kFill = 0.7;				// the box of a place takes at most this much of the view
 const time_t kTileLifetime = 14 * 24 * 3600;
 const uint32 kTileArrived = 'mTle';
+const uint32 kStyleChosen = 'mSty';
 const char* const kUserAgent = "SEN-Shoji/1.0 (Haiku; https://sen-labs.org)";
-const char* const kAttributionOsm = "\xC2\xA9 OpenStreetMap contributors";
-const char* const kAttributionTopo[] = { "\xC2\xA9 OpenStreetMap contributors, SRTM", "\xC2\xA9 OpenTopoMap (CC-BY-SA)" };
 
-// where the tiles come from: the map with the relief (hill shading and contour lines of OpenTopoMap, free to use within its fair use limits), and if its server does not
-// answer the standard map of OpenStreetMap
-enum TileStyle { kTopo = 0, kOsm = 1 };
-const char* const kStyleFolder[] = { "topo", "osm" };
-const char* const kStyleServer[] = { "https://tile.opentopomap.org/", "https://tile.openstreetmap.org/" };
+// where the tiles come from: the style that the user chose (sen::mapstyles: the choice made in the view, else the default of the settings of the spatial navigator), and if its server does not answer the standard map of OpenStreetMap
+using sen::mapstyles::Style;
+const Style* FallbackStyle() { return sen::mapstyles::Find(sen::mapstyles::FallbackId()); }
 
 unsigned long long TileKey(int zoom, int x, int y)
 {
@@ -65,9 +68,9 @@ bool ParseDegrees(const BMessage* values, const char* name, double* value)
     return end != text.String();
 }
 
-bool TilePath(int style, int zoom, int x, int y, BPath* path)
+bool TilePath(const Style& style, int zoom, int x, int y, BPath* path)
 {
-    if (find_directory(B_USER_CACHE_DIRECTORY, path) != B_OK || path->Append("shoji/tiles") != B_OK || path->Append(kStyleFolder[style]) != B_OK)
+    if (find_directory(B_USER_CACHE_DIRECTORY, path) != B_OK || path->Append("shoji/tiles") != B_OK || path->Append(style.id) != B_OK)
         return false;
     BString name;
     name << zoom << "/" << x << "/" << y << ".png";
@@ -79,7 +82,7 @@ bool TilePath(int style, int zoom, int x, int y, BPath* path)
 
 /** the tiles that are asked for, the thread that asks, and where to tell the view; shared with the thread, so that the view can go while a request is under way */
 struct PlaceMapView::Fetcher {
-    struct Request { int zoom, x, y; };
+    struct Request { const sen::mapstyles::Style* style; int zoom, x, y; };
 
     BLocker             lock;
     std::deque<Request> queue;
@@ -93,13 +96,12 @@ struct PlaceMapView::Fetcher {
 
 
 /** one tile from the server of the style into the file of the cache (the client over a socket of SEN, see SenSocketHttp.h: the same one that the plugins use) */
-static status_t FetchTile(int style, int zoom, int x, int y, const BPath& path)
+static status_t FetchTile(const Style& style, int zoom, int x, int y, const BPath& path)
 {
-    BString address;
-    address << kStyleServer[style] << zoom << "/" << x << "/" << y << ".png";
+    const std::string address = sen::mapstyles::TileUrl(style, zoom, x, y);
     std::string body;
     int code = 0;
-    status_t status = sen::http::SocketGet(address.String(), kUserAgent, "image/png", &body, &code);
+    status_t status = sen::http::SocketGet(address.c_str(), kUserAgent, "image/png", &body, &code);
     if (status != B_OK || code != 200 || body.empty())
         return status != B_OK ? status : B_ERROR;
 
@@ -134,11 +136,14 @@ static int32 FetchThread(void* data)
             next = fetcher->queue.front();
             fetcher->queue.pop_front();
         }
-        // (the map with the relief; if its server does not answer, the standard map is asked for this tile)
+        // (the style that was chosen; if its server does not answer, the standard map is asked for this tile)
         bool got = false;
-        for (int style = kTopo; style <= kOsm && !got; style++) {
+        const Style* chain[2] = { next.style, FallbackStyle() };
+        for (int i = 0; i < 2 && !got; i++) {
+            if (i == 1 && chain[1] == chain[0])
+                break;
             BPath path;
-            got = TilePath(style, next.zoom, next.x, next.y, &path) && FetchTile(style, next.zoom, next.x, next.y, path) == B_OK;
+            got = TilePath(*chain[i], next.zoom, next.x, next.y, &path) && FetchTile(*chain[i], next.zoom, next.x, next.y, path) == B_OK;
         }
         if (got) {
             BMessage arrived(kTileArrived);
@@ -205,6 +210,8 @@ void PlaceMapView::_Init()
     fSouth = fNorth = fWest = fEast = 0;
     fZoom = kPointZoom;
     fFetcher = std::make_shared<Fetcher>();
+    fStyle = NULL;
+    _LoadStyle();
     SetViewColor(B_TRANSPARENT_COLOR);
     SetExplicitMinSize(BSize(kMapMinWidth, kMapMinHeight));
 }
@@ -236,8 +243,90 @@ status_t PlaceMapView::Archive(BMessage* into, bool deep) const
 }
 
 
+/** The style from the settings (they may have been changed in the settings window, or by the menu of another map). @return whether it is another one than before. */
+bool PlaceMapView::_LoadStyle()
+{
+    shoji::Settings settings;
+    settings.Load();
+    const Style* style = &sen::mapstyles::Get(settings.EffectiveMapStyle());
+    if (style == fStyle)
+        return false;
+    fStyle = style;
+    return true;
+}
+
+
+/** the tiles of another style are not those that are in the memory, and what is asked for is not what is wanted any more */
+void PlaceMapView::_ClearTiles()
+{
+    for (auto& tile : fTiles)
+        delete tile.second;
+    fTiles.clear();
+    fPrimaryTiles.clear();
+    BAutolock locker(fFetcher->lock);
+    fFetcher->queue.clear();
+    fFetcher->asked.clear();
+}
+
+
+void PlaceMapView::SetStyle(const char* id)
+{
+    // (an empty id takes the choice back: the default of the settings of the spatial navigator is used again)
+    shoji::Settings settings;
+    settings.Load();
+    settings.SetMapStyle(id);
+    settings.Save();
+    if (_LoadStyle()) {
+        _ClearTiles();
+        _Layout();
+        Invalidate();
+    }
+}
+
+
+void PlaceMapView::MouseDown(BPoint where)
+{
+    int32 buttons = 0;
+    if (Window() != NULL && Window()->CurrentMessage() != NULL)
+        Window()->CurrentMessage()->FindInt32("buttons", &buttons);
+    if ((buttons & B_SECONDARY_MOUSE_BUTTON) == 0) {
+        BView::MouseDown(where);
+        return;
+    }
+    // the styles of the map, the one in use marked; the first is the default of the settings of the spatial navigator (marked while no style was chosen here)
+    shoji::Settings settings;
+    settings.Load();
+    const bool chosen = !settings.MapStyle().empty();
+    const std::string pluginDefault = shoji::Settings::PluginMapStyle();
+    BPopUpMenu* menu = new BPopUpMenu("map style", false, false);
+    {
+        BString label("Default (");
+        label << sen::mapstyles::Get(pluginDefault).label << ")";
+        BMessage* choice = new BMessage(kStyleChosen);
+        choice->AddString("style", "");
+        BMenuItem* item = new BMenuItem(label.String(), choice);
+        item->SetMarked(!chosen);
+        item->SetTarget(this);
+        menu->AddItem(item);
+        menu->AddSeparatorItem();
+    }
+    for (const Style& style : sen::mapstyles::All()) {
+        BMessage* choice = new BMessage(kStyleChosen);
+        choice->AddString("style", style.id);
+        BMenuItem* item = new BMenuItem(style.label, choice);
+        item->SetMarked(chosen && &style == fStyle);
+        item->SetTarget(this);
+        menu->AddItem(item);
+    }
+    menu->Go(ConvertToScreen(where), true, true, true);
+}
+
+
 void PlaceMapView::SetPlace(const BMessage* values)
 {
+    // (a style that was chosen in the settings window since the map was made)
+    if (_LoadStyle())
+        _ClearTiles();
     double latitude, longitude, south, north, west, east;
     if (values == NULL || !ParseDegrees(values, "schema:latitude", &latitude) || !ParseDegrees(values, "schema:longitude", &longitude)) {
         fHasPosition = false;
@@ -332,25 +421,28 @@ void PlaceMapView::_Layout()
 
 
 /**
- * The tile from the memory, else from the cache of the disk (of the map with the relief, else of the standard map; a tile that is old or that is only of the standard map is asked for
- * again, and shown until the new one is here), else it is asked for. NULL if there is none yet. @p topo tells whether the tile is one with the relief.
+ * The tile from the memory, else from the cache of the disk (of the style that was chosen, else of the standard map; a tile that is old or that is only of the standard map is asked for
+ * again, and shown until the new one is here), else it is asked for. NULL if there is none yet. @p primary tells whether the tile is one of the style that was chosen.
  */
-BBitmap* PlaceMapView::_TileBitmap(int zoom, int x, int y, bool* topo)
+BBitmap* PlaceMapView::_TileBitmap(int zoom, int x, int y, bool* primary)
 {
     unsigned long long key = TileKey(zoom, x, y);
     auto found = fTiles.find(key);
     if (found != fTiles.end()) {
-        if (topo != NULL)
-            *topo = fTopoTiles.count(key) > 0;
+        if (primary != NULL)
+            *primary = fPrimaryTiles.count(key) > 0;
         return found->second;
     }
 
     bool stale = true;
-    bool isTopo = false;
+    bool isPrimary = false;
     BBitmap* bitmap = NULL;
-    for (int style = kTopo; style <= kOsm && bitmap == NULL; style++) {
+    const Style* chain[2] = { fStyle, FallbackStyle() };
+    for (int i = 0; i < 2 && bitmap == NULL; i++) {
+        if (i == 1 && chain[1] == chain[0])
+            break;
         BPath path;
-        if (!TilePath(style, zoom, x, y, &path))
+        if (!TilePath(*chain[i], zoom, x, y, &path))
             continue;
         BEntry entry(path.Path());
         time_t modified;
@@ -358,21 +450,21 @@ BBitmap* PlaceMapView::_TileBitmap(int zoom, int x, int y, bool* topo)
             continue;
         bitmap = BTranslationUtils::GetBitmap(path.Path());
         if (bitmap != NULL) {
-            isTopo = style == kTopo;
-            stale = !isTopo || entry.GetModificationTime(&modified) != B_OK || time(NULL) - modified >= kTileLifetime;
+            isPrimary = i == 0;
+            stale = !isPrimary || entry.GetModificationTime(&modified) != B_OK || time(NULL) - modified >= kTileLifetime;
         }
     }
     if (bitmap != NULL) {
         fTiles[key] = bitmap;
-        if (isTopo)
-            fTopoTiles.insert(key);
+        if (isPrimary)
+            fPrimaryTiles.insert(key);
     }
-    if (topo != NULL)
-        *topo = isTopo;
+    if (primary != NULL)
+        *primary = isPrimary;
     if (stale && fFetcher->view.IsValid()) {
         BAutolock locker(fFetcher->lock);
         if (fFetcher->asked.insert(key).second) {
-            fFetcher->queue.push_back({zoom, x, y});
+            fFetcher->queue.push_back({fStyle, zoom, x, y});
             if (!fFetcher->running) {
                 fFetcher->running = true;
                 thread_id thread = spawn_thread(FetchThread, "map tiles", B_LOW_PRIORITY, new std::shared_ptr<Fetcher>(fFetcher));
@@ -392,8 +484,12 @@ void PlaceMapView::MessageReceived(BMessage* message)
         for (auto& tile : fTiles)
             delete tile.second;
         fTiles.clear();
-        fTopoTiles.clear();
+        fPrimaryTiles.clear();
         Invalidate();
+        return;
+    }
+    if (message->what == kStyleChosen) {
+        SetStyle(message->GetString("style", ""));
         return;
     }
     BView::MessageReceived(message);
@@ -451,14 +547,14 @@ void PlaceMapView::Draw(BRect updateRect)
     int firstY = std::max(0, (int) floor(top / size)), lastY = std::min(count - 1, (int) floor((top + height) / size));
     SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR), B_DARKEN_1_TINT));
     FillRect(bounds & updateRect);
-    bool anyTopo = false;
+    bool anyPrimary = false;
     for (int y = firstY; y <= lastY; y++) {
         for (int x = firstX; x <= lastX; x++) {
-            bool topo = false;
-            BBitmap* tile = _TileBitmap(tileZoom, ((x % count) + count) % count, y, &topo);
+            bool primary = false;
+            BBitmap* tile = _TileBitmap(tileZoom, ((x % count) + count) % count, y, &primary);
             if (tile == NULL)
                 continue;
-            anyTopo = anyTopo || topo;
+            anyPrimary = anyPrimary || primary;
             float x0 = (float) (x * size - left), y0 = (float) (y * size - top);
             if (size == 256.0)
                 DrawBitmap(tile, BPoint(x0, y0));
@@ -467,8 +563,9 @@ void PlaceMapView::Draw(BRect updateRect)
         }
     }
     // (what the licences ask the map to say, in lines that fit the view)
-    const char* attribution[2] = { anyTopo ? kAttributionTopo[0] : kAttributionOsm, anyTopo ? kAttributionTopo[1] : NULL };
-    const int lines = anyTopo ? 2 : 1;
+    const Style& shown = anyPrimary ? *fStyle : *FallbackStyle();
+    const char* const* attribution = shown.attribution;
+    const int lines = attribution[1] != NULL ? 2 : 1;
 
     // the pin is where the place is (not where the middle of its box is)
     BPoint tip((float) (WorldX(fLongitude, fZoom) - left), (float) (WorldY(fLatitude, fZoom) - top));
@@ -485,6 +582,8 @@ void PlaceMapView::Draw(BRect updateRect)
     float textWidth = 0;
     for (int line = 0; line < lines; line++)
         textWidth = std::max(textWidth, StringWidth(attribution[line]));
+    // (a line that is wider than the view starts at its left edge: the end of it is cut, not the beginning)
+    textWidth = std::min(textWidth, (float) bounds.Width() - 8);
     BRect label(bounds.right - textWidth - 8, bounds.bottom - lineHeight * lines - 3, bounds.right, bounds.bottom);
     SetDrawingMode(B_OP_ALPHA);
     SetBlendingMode(B_CONSTANT_ALPHA, B_ALPHA_OVERLAY);
@@ -494,7 +593,7 @@ void PlaceMapView::Draw(BRect updateRect)
     SetHighColor(40, 40, 40);
     for (int line = 0; line < lines; line++) {
         float width = StringWidth(attribution[line]);
-        DrawString(attribution[line], BPoint(bounds.right - width - 4, label.top + 1 + lineHeight * (line + 1) - fontHeight.descent - 1));
+        DrawString(attribution[line], BPoint(std::max(bounds.left + 4, bounds.right - width - 4), label.top + 1 + lineHeight * (line + 1) - fontHeight.descent - 1));
     }
     SetFont(be_plain_font);
 
