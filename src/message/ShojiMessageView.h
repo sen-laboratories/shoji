@@ -99,6 +99,8 @@ private:
     void                    _ApplyList(const std::string& node, const std::string& name);
     void                    _Refuse(const std::string& path, const std::string& text, status_t status);
     void                    _Show(const std::string& path);
+    /** enables and disables the controls of the shown node whose schema says `enabled_when` (a field of the same message that has a value) */
+    void                    _UpdateEnabled();
     void                    _ShowList(const std::string& node, const std::string& name);
     void                    _Changed(const char* path, const char* value);
     void                    _HandleSetData(BMessage* message);

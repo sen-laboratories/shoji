@@ -15,7 +15,11 @@ class BTextControl;
 class FormView : public BGridView {
     public:
                         FormView(const char* name);
+                        FormView(BMessage* archive);
         virtual        ~FormView();
+
+        /** a form inside another view of a template (the form of a place below its map) is restored from the archive of the template as itself */
+        static BArchivable* Instantiate(BMessage* archive);
 
         BTextControl*   AddField(const char* attribute, const char* label);
         /** nothing to do now that the grid sets the widths, kept so that a template says where it ends */

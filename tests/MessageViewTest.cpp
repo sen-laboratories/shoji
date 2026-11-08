@@ -23,6 +23,7 @@
 #include <ListView.h>
 #include <MenuField.h>
 #include <MenuItem.h>
+#include <SeparatorItem.h>
 #include <RadioButton.h>
 #include <Slider.h>
 #include <Spinner.h>
@@ -578,6 +579,87 @@ TestNoTree()
     w->Quit();
 }
 
+// A field with `enabled_when` ("key=value") can be edited only while another field has that value: the address and the key of a custom mirror (the spatial navigator).
+static void
+TestEnabledWhen(TestWindow* w)
+{
+    BMessage settings, schema, mirror, address, key;
+    settings.AddString("mirror", "default");
+    settings.AddString("address", "");
+    settings.AddString("key", "");
+    schema.AddInt32(form::kSchemaVersion, 1);
+    mirror.AddString(form::kAttrKind, form::kKindChoice);
+    mirror.AddString(form::kAttrChoices, "default");
+    mirror.AddString(form::kAttrChoices, form::kChoiceSeparator);
+    mirror.AddString(form::kAttrChoices, "custom");
+    mirror.AddInt32(form::kAttrOrder, 0);
+    address.AddString(form::kAttrEnabledWhen, "mirror=custom");
+    address.AddInt32(form::kAttrOrder, 1);
+    key.AddString(form::kAttrEnabledWhen, "mirror=custom");
+    key.AddString(form::kAttrKind, form::kKindSecret);
+    key.AddInt32(form::kAttrOrder, 2);
+    schema.AddMessage("mirror", &mirror);
+    schema.AddMessage("address", &address);
+    schema.AddMessage("key", &key);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+
+    BMenuField* menu = dynamic_cast<BMenuField*>(w->view->ControlFor("mirror"));
+    BTextControl* field = TextField(w, "address");
+    BTextControl* secret = TextField(w, "key");
+    CHECK(menu != NULL && menu->IsEnabled());
+    CHECK(field != NULL && !field->IsEnabled() && secret != NULL && !secret->IsEnabled());		// (the default server is chosen)
+
+    CHECK(dynamic_cast<BSeparatorItem*>(menu->Menu()->ItemAt(1)) != NULL);			// (the line between the servers and the custom mirror)
+    BMessage chosen(*menu->Menu()->ItemAt(2)->Message());			// "custom"
+    w->view->MessageReceived(&chosen);
+    w->Settle();
+    field = TextField(w, "address");
+    secret = TextField(w, "key");
+    CHECK(w->Text("mirror") == "custom");
+    CHECK(field != NULL && field->IsEnabled() && secret != NULL && secret->IsEnabled());
+
+    BMessage back(*menu->Menu()->ItemAt(0)->Message());
+    w->view->MessageReceived(&back);
+    w->Settle();
+    CHECK(!TextField(w, "address")->IsEnabled() && !TextField(w, "key")->IsEnabled());
+
+    // revert: the choice is the one of the start again, and so is what is enabled
+    w->view->MessageReceived(&chosen);
+    w->Settle();
+    CHECK(TextField(w, "address")->IsEnabled());
+    w->view->Revert();
+    w->Settle();
+    CHECK(w->Text("mirror") == "default" && !TextField(w, "address")->IsEnabled());
+
+    // conditions: "or" of alternatives, "and" within one (a key is for a server that requires one: the listed ones, or the custom one that has the flag)
+    BMessage more(settings), moreSchema(schema), flag, keyOnly(key);
+    more.AddBool("flag", false);
+    flag.AddInt32(form::kAttrOrder, 3);
+    moreSchema.AddMessage("flag", &flag);
+    moreSchema.RemoveName("key");
+    keyOnly.ReplaceString(form::kAttrEnabledWhen, 0, "mirror=other|mirror=custom&flag=true");
+    moreSchema.AddMessage("key", &keyOnly);
+    w->view->SetData(more, &moreSchema, NULL);
+    w->Settle();
+    CHECK(!TextField(w, "key")->IsEnabled());
+    BMenuField* menu2 = dynamic_cast<BMenuField*>(w->view->ControlFor("mirror"));
+    BMessage custom(*menu2->Menu()->ItemAt(2)->Message());
+    w->view->MessageReceived(&custom);
+    w->Settle();
+    CHECK(!TextField(w, "key")->IsEnabled());			// (custom, but the flag is not set)
+    BCheckBox* box = dynamic_cast<BCheckBox*>(w->view->ControlFor("flag"));
+    box->SetValue(B_CONTROL_ON);
+    box->Invoke();
+    w->Settle();
+    CHECK(TextField(w, "key")->IsEnabled());			// (custom and flagged)
+    BMessage defaultAgain(*menu2->Menu()->ItemAt(0)->Message());
+    w->view->MessageReceived(&defaultAgain);
+    w->Settle();
+    CHECK(!TextField(w, "key")->IsEnabled());			// (the flag stays, the mirror is not custom)
+}
+
+
 int main(int argc, char** argv)
 {
     BApplication app("application/x-vnd.sen-labs.shoji-message-view-test");
@@ -623,6 +705,7 @@ int main(int argc, char** argv)
     TestNodes(window);
     TestRevertAndDefaults(window, original, defaults);
     TestReadOnly(window);
+    TestEnabledWhen(window);
     window->Quit();
     TestNoTree();
 

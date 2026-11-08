@@ -31,6 +31,7 @@
 #include "../templates/document/scientific-paper/PaperView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.book/BookView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.person/PersonView.h"
+#include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceView.h"
 
 const char* kApplicationSignature = "application/x-vnd.sen-labs.shoji";
 
@@ -49,12 +50,16 @@ BView* CreateContactView() { return new ContactView(); }
 BView* CreateBookView() { return new BookView(); }
 BView* CreatePersonView() { return new PersonView(); }
 BView* CreatePaperView() { return new PaperView(); }
+BView* CreatePlaceView() { return new PlaceView(true); }
+BView* CreateLocationView() { return new PlaceView(false); }
 
 const TemplateSpec kTemplates[] = {
     { "application/x-person", CreateContactView },
     { "entity/x-vnd.sen-labs.entity.book", CreateBookView },
     { "entity/x-vnd.sen-labs.entity.person", CreatePersonView },
     { "document/scientific-paper", CreatePaperView },
+    { "entity/x-vnd.sen-labs.entity.place", CreatePlaceView },
+    { "entity/x-vnd.sen-labs.entity.location", CreateLocationView },
 };
 
 }   // namespace

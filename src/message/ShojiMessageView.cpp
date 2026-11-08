@@ -682,6 +682,7 @@ void ShojiMessageView::_ShowNode(const std::string& path)
     fPaneHolder->GroupLayout()->AddView(pane);
     if (Window() != NULL)
         Connect(pane, this);
+    _UpdateEnabled();
 
     for (int32 i = 0; i < fTree->FullListCountItems(); i++) {
         NodeItem* item = dynamic_cast<NodeItem*>(fTree->FullListItemAt(i));
@@ -934,6 +935,8 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         BGroupView* group = new BGroupView(path.c_str(), B_VERTICAL, 0);
         for (int32 i = 0; i < choiceCount; i++) {
             const char* value = attributes.GetString(form::kAttrChoices, i, "");
+            if (strcmp(value, form::kChoiceSeparator) == 0)
+                continue;
             const char* shownAs = attributes.GetString(form::kAttrChoiceLabels, i, value);
             BMessage* chosen = new BMessage(kMsgChoice);
             chosen->AddString("path", path.c_str());
@@ -961,6 +964,11 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         bool found = false;
         for (int32 i = 0; i < choiceCount; i++) {
             const char* value = attributes.GetString(form::kAttrChoices, i, "");
+            // a choice "-" is a line between the choices (the presets and the choice of one's own)
+            if (strcmp(value, form::kChoiceSeparator) == 0) {
+                menu->AddSeparatorItem();
+                continue;
+            }
             const char* shownAs = attributes.GetString(form::kAttrChoiceLabels, i, value);
             BMessage* chosen = new BMessage(kMsgChoice);
             chosen->AddString("path", path.c_str());
@@ -1051,6 +1059,7 @@ void ShojiMessageView::_ApplyText(const std::string& path, const std::string& te
     std::string after;
     GetText(fWorking, path, &after);
     _Show(path);
+    _UpdateEnabled();
     if (after != before)
         _Changed(path.c_str(), after.c_str());
 }
@@ -1135,6 +1144,55 @@ void ShojiMessageView::_Show(const std::string& path)
             if (button != NULL && button->Message() != NULL)
                 button->SetValue(text == button->Message()->GetString("value", "") ? B_CONTROL_ON : B_CONTROL_OFF);
         }
+    }
+}
+
+
+// A control whose schema has `enabled_when` is enabled while the condition holds, and only if the form can be edited at all. The condition is `key=value` (the field `key` of the
+// same message has that value), several of them with `&` (all hold) and alternatives with `|` (one holds): `mode=custom&flag=true|mode=other`.
+void ShojiMessageView::_UpdateEnabled()
+{
+    BMessage message;
+    if (fPane == NULL || !NodeIn(fWorking, fNode, &message))
+        return;
+    const std::string key = fNode.empty() ? std::string() : _SchemaKey(fNode);
+    const std::vector<Known>& known = fKnown[fNode];
+    for (size_t i = 0; i < known.size(); i++) {
+        const BMessage attributes = _SchemaOf(ChildPath(key, known[i].name));
+        const char* rule = NULL;
+        if (attributes.FindString(form::kAttrEnabledWhen, &rule) != B_OK || rule == NULL)
+            continue;
+
+        bool enabled = false;
+        const std::string condition = rule;
+        for (size_t from = 0; from <= condition.size() && !enabled; ) {
+            size_t end = condition.find('|', from);
+            if (end == std::string::npos)
+                end = condition.size();
+            const std::string alternative = condition.substr(from, end - from);
+            from = end + 1;
+
+            bool all = !alternative.empty();
+            for (size_t start = 0; start <= alternative.size() && all; ) {
+                size_t stop = alternative.find('&', start);
+                if (stop == std::string::npos)
+                    stop = alternative.size();
+                const std::string term = alternative.substr(start, stop - start);
+                start = stop + 1;
+                const size_t equals = term.find('=');
+                std::string have;
+                all = equals != std::string::npos
+                    && GetText(fWorking, ChildPath(fNode, term.substr(0, equals)), &have) == B_OK && have == term.substr(equals + 1);
+            }
+            enabled = all;
+        }
+        enabled = enabled && fEditable;
+
+        BView* control = ControlFor(ChildPath(fNode, known[i].name).c_str());
+        if (BControl* each = dynamic_cast<BControl*>(control))
+            each->SetEnabled(enabled);
+        else if (BMenuField* menuField = dynamic_cast<BMenuField*>(control))
+            menuField->SetEnabled(enabled);
     }
 }
 

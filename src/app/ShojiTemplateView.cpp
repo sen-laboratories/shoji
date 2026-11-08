@@ -23,6 +23,7 @@
 
 #include "ShojiTemplateView.h"
 #include "ShojiListControl.h"
+#include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceMapView.h"
 
 /*
  * custom MIME-specific template view for the provided source file type.
@@ -205,6 +206,10 @@ status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMes
         if (BControl* control = dynamic_cast<BControl*>(view))
             shoji::SetControlEditable(control, attr.editable);
     }
+
+    // the map of a place (the template of a place has one) shows where it is
+    if (PlaceMapView* map = dynamic_cast<PlaceMapView*>(fView->FindView(PlaceMapView::ViewName())))
+        map->SetPlace(values);
 
     return B_OK;
 }
