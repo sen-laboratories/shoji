@@ -34,6 +34,7 @@
 #include <sen/SenStripeDialog.h>
 
 #include "ShojiApp.h"
+#include "ShojiLinkLabel.h"
 #include "ShojiWindow.h"
 #include "ShojiView.h"
 #include "ShojiGenericFormView.h"
@@ -238,6 +239,15 @@ void ShojiWindow::MessageReceived(BMessage* message)
         case kMsgRevert:
             Revert();
             break;
+        case ShojiLinkLabel::kClicked:
+        {
+            // the label of a field was clicked (the homepage: the web browser; the location: the place enricher): what the field says now is followed
+            const char* name = NULL;
+            BTextControl* field = message->FindString("attribute", &name) == B_OK ? dynamic_cast<BTextControl*>(FindControl(name)) : NULL;
+            if (field != NULL)
+                shoji::OpenLink(shoji::LinkKindOf(name), field->Text(), fRef);
+            break;
+        }
         case B_NODE_MONITOR:
         {
             int32 opcode;
