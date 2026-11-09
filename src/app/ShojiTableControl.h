@@ -12,6 +12,7 @@
 #include <vector>
 
 class BHandler;
+class BMessageRunner;
 class BScrollView;
 class ShojiTableEditor;
 class ShojiTableHeader;
@@ -56,6 +57,7 @@ public:
         std::vector<Choice>     choices;            ///< of a choice
         bool                    editable = false;   ///< a cell that only shows (the name of a row) has none
         bool                    enabled = true;     ///< editable now: a cell is disabled while its row does not fit (enabled_when)
+        bool                    busy = false;       ///< work is going on for the row: a spinner before the text
     };
     typedef std::vector<Cell> Row;
 
@@ -124,6 +126,7 @@ public:
     /** moves a row to a place before the row `before` (0 to the number of rows: the end); the rows, the selection and the target follow. False if nothing moves. */
     bool                    MoveRow(int32 row, int32 before);
 
+    virtual void            AttachedToWindow();
     virtual void            MessageReceived(BMessage* message);
 
 private:
@@ -133,6 +136,8 @@ private:
     friend class ShojiTableRowItem;
 
     void                    _Tell(int32 row, int32 column, const std::string& value);
+    void                    _UpdateSpinner();
+    int32                   SpinStep() const { return fSpinStep; }
     void                    _Measure();
     BRect                   _CellFrame(int32 row, int32 column) const;
     bool                    _CanChange(int32 row, int32 column) const;
@@ -145,6 +150,8 @@ private:
     std::vector<std::string> fColumns;
     std::vector<Row>        fRows;
     std::vector<float>      fWidths;
+    BMessageRunner*         fSpinTimer;     ///< turns the spinners of the busy cells (there while a row has one)
+    int32                   fSpinStep;
     std::vector<float>      fUserWidths;    ///< what the user dragged the columns to (0: not)
     std::vector<bool>       fCentered;
     int32                   fFlexible;

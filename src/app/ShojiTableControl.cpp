@@ -9,6 +9,7 @@
 #include <Handler.h>
 #include <ListItem.h>
 #include <ListView.h>
+#include <MessageRunner.h>
 #include <MenuItem.h>
 #include <PopUpMenu.h>
 #include <ScrollBar.h>
@@ -103,6 +104,30 @@ private:
 // #pragma mark - the rows
 
 
+const uint32 kMsgSpin = 'TBsp';
+
+/** A spinner of eight dots in a ring that fade, the strongest one in front and the ones behind it fainter, moving on a step at a time: in the box, in the color of the text. */
+static void
+DrawSpinner(BView* view, BRect box, int32 step, rgb_color ink)
+{
+    const BPoint center((box.left + box.right) / 2, (box.top + box.bottom) / 2);
+    const float outer = std::min(box.Width(), box.Height()) / 2;
+    const float ring = outer * 0.66f;
+    const float dot = std::max(1.0f, outer * 0.24f);
+    view->SetDrawingMode(B_OP_ALPHA);
+    view->SetBlendingMode(B_PIXEL_ALPHA, B_ALPHA_OVERLAY);
+    for (int32 spoke = 0; spoke < 8; spoke++) {
+        const float angle = (float)spoke * (float)M_PI / 4;
+        const int32 behind = ((step - spoke) % 8 + 8) % 8;			// (0: the one in front, the others the older the fainter)
+        rgb_color color = ink;
+        color.alpha = (uint8)(255 - behind * 30);
+        view->SetHighColor(color);
+        view->FillEllipse(BPoint(center.x + sinf(angle) * ring, center.y - cosf(angle) * ring), dot, dot);
+    }
+    view->SetDrawingMode(B_OP_COPY);
+}
+
+
 /** A row of the list: draws the cells, each as the control that it stands for but that cannot be used. */
 class ShojiTableRowItem : public BListItem {
 public:
@@ -177,11 +202,19 @@ public:
                 }
                 default:
                 {
+                    // (work is going on for the row: a spinner after the text, so that the text does not move when it comes and goes)
+                    const float left = area.left + kPadding;
+                    const float spinnerSize = ceilf(height.ascent + height.descent) - 2;
                     BString label(cell.text.c_str());
-                    owner->TruncateString(&label, B_TRUNCATE_END, area.Width() - kPadding * 2);
+                    owner->TruncateString(&label, B_TRUNCATE_END, area.right - left - kPadding - (cell.busy ? spinnerSize + 6 : 0));
                     owner->SetHighColor(usable || !cell.editable ? text : tint_color(text, B_LIGHTEN_2_TINT));
                     owner->SetLowColor(background);
-                    owner->DrawString(label.String(), BPoint(area.left + kPadding, baseline));
+                    owner->DrawString(label.String(), BPoint(left, baseline));
+                    if (cell.busy) {
+                        const float x = left + owner->StringWidth(label.String()) + 6;
+                        const float top = frame.top + floorf((frame.Height() - spinnerSize) / 2);
+                        DrawSpinner(owner, BRect(x, top, x + spinnerSize, top + spinnerSize), fTable->SpinStep(), text);
+                    }
                     break;
                 }
             }
@@ -499,6 +532,8 @@ ShojiTableControl::ShojiTableControl(const char* name)
     fMessage(NULL),
     fEditable(true),
     fReorderable(false),
+    fSpinTimer(NULL),
+    fSpinStep(0),
     fHeader(NULL),
     fList(NULL),
     fScroll(NULL),
@@ -520,6 +555,7 @@ ShojiTableControl::ShojiTableControl(const char* name)
 
 ShojiTableControl::~ShojiTableControl()
 {
+    delete fSpinTimer;
     delete fMessage;
 }
 
@@ -563,6 +599,7 @@ void ShojiTableControl::SetRows(const std::vector<Row>& rows)
     fScroll->SetExplicitPreferredSize(BSize(width + B_V_SCROLL_BAR_WIDTH + 4, height));
     fScroll->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, height));
     InvalidateLayout();
+    _UpdateSpinner();
 }
 
 
@@ -841,9 +878,46 @@ void ShojiTableControl::_Tell(int32 row, int32 column, const std::string& value)
 }
 
 
+void ShojiTableControl::AttachedToWindow()
+{
+    BGroupView::AttachedToWindow();
+    _UpdateSpinner();
+}
+
+
+// the spinners of the busy cells turn by a timer that is there while a row has one
+void ShojiTableControl::_UpdateSpinner()
+{
+    bool busy = false;
+    for (const Row& row : fRows) {
+        for (const Cell& cell : row)
+            busy = busy || cell.busy;
+    }
+    if (busy && fSpinTimer == NULL && Window() != NULL) {
+        fSpinTimer = new BMessageRunner(BMessenger(this), new BMessage(kMsgSpin), 100000);
+    } else if (!busy && fSpinTimer != NULL) {
+        delete fSpinTimer;
+        fSpinTimer = NULL;
+    }
+}
+
+
 void ShojiTableControl::MessageReceived(BMessage* message)
 {
     switch (message->what) {
+        case kMsgSpin:
+        {
+            fSpinStep = (fSpinStep + 1) % 8;
+            for (size_t row = 0; row < fRows.size(); row++) {
+                for (const Cell& cell : fRows[row]) {
+                    if (cell.busy) {
+                        fList->InvalidateItem((int32)row);
+                        break;
+                    }
+                }
+            }
+            break;
+        }
         case kEditorDone:
             // (a field that was taken away already is old news)
             if (message->GetInt32("serial", -1) == fEditSerial)

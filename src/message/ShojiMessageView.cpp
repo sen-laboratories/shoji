@@ -851,6 +851,24 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
             shown.push_back(Shown{Known{messageName, B_MESSAGE_TYPE, false},
                 (double)attributes.GetInt32(form::kAttrOrder, (int32)(known.size() + i)), true, kind});
         }
+        // the tables that the schema has and the message has no rows for (an array without values is no field of the message): shown empty, with the titles of their columns
+        for (const std::pair<const std::string, BMessage>& entry : fAttributes) {
+            std::string tableKind;
+            if (!IsTableKind(entry.second, &tableKind) || tableKind != form::kKindTable || entry.second.GetBool(form::kAttrHidden, false))
+                continue;
+            std::string name;
+            if (key.empty()) {
+                name = entry.first;
+            } else if (entry.first.compare(0, key.size() + 1, key + ".") == 0) {
+                name = entry.first.substr(key.size() + 1);
+            } else {
+                continue;
+            }
+            type_code presentType = 0;
+            if (name.empty() || name.find('.') != std::string::npos || message.GetInfo(name.c_str(), &presentType) == B_OK)
+                continue;
+            shown.push_back(Shown{Known{name, B_MESSAGE_TYPE, false}, (double)entry.second.GetInt32(form::kAttrOrder, (int32)(known.size() + shown.size())), true, "table"});
+        }
         std::stable_sort(shown.begin(), shown.end(), [](const Shown& a, const Shown& b) { return a.order < b.order; });
 
         for (const Shown& item : shown) {
@@ -977,13 +995,18 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         button->SetEnabled(fEditable);
         if (help != NULL)
             button->SetToolTip(help);
-        // the text that the button shows (what came of it) stands right of it, in the same line
+        // the text that the button shows (what came of it) stands in the same line, in the column of the controls (under the menu above it, with room for the text); the button is
+        // in the column of the labels, at its right edge, where the labels end
         const char* shows = NULL;
         std::string shownText;
         if (attributes.FindString(form::kAttrShows, &shows) == B_OK && GetText(message, EscapeSegment(shows), &shownText) == B_OK) {
-            BGroupView* line = new BGroupView(B_HORIZONTAL, B_USE_DEFAULT_SPACING);
-            line->GroupLayout()->SetInsets(0, 0, 0, 0);
-            line->GroupLayout()->AddView(button);
+            // (in a line of its own with room before it: a button that is given the width of its column would fill it, an alignment does not make it smaller)
+            BGroupView* right = new BGroupView(B_HORIZONTAL, 0);
+            right->GroupLayout()->SetInsets(0, 0, 0, 0);
+            right->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
+            right->GroupLayout()->AddView(button);
+            right->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+            layout->AddView(right, 0, *row);
             BStringView* result = new BStringView(ChildPath(node, shows).c_str(), shownText.c_str());
             result->SetTruncation(B_TRUNCATE_END);
             result->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 8, B_SIZE_UNSET));
@@ -991,9 +1014,7 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
             result->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
             if (!shownText.empty())
                 result->SetToolTip(shownText.c_str());
-            line->GroupLayout()->AddView(result);
-            line->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
-            layout->AddView(line, 1, *row);
+            layout->AddView(result, 1, *row);
         } else {
             button->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
             layout->AddView(button, 1, *row);
@@ -1311,6 +1332,10 @@ void ShojiMessageView::_FillTable(ShojiTableControl* control, const Table& table
         cell.path = ChildPath(ownerPath, segment);
         cell.text = text;
         cell.editable = !attributes.GetBool(form::kAttrReadOnly, false);
+        // (a spinner before the text while the row is busy: the schema names the field of the row that says so)
+        const char* busyField = NULL;
+        if (attributes.FindString(form::kAttrBusyField, &busyField) == B_OK && busyField != NULL)
+            cell.busy = owner.GetBool(busyField, false);
         const char* rule = NULL;
         if (attributes.FindString(form::kAttrEnabledWhen, &rule) == B_OK && rule != NULL)
             cell.enabled = ConditionHolds(rule, owner);
@@ -1379,6 +1404,16 @@ void ShojiMessageView::_FillTable(ShojiTableControl* control, const Table& table
             BMessage each;
             if (message.FindMessage(table.name.c_str(), i, &each) == B_OK)
                 fieldsOf(each, &names);
+        }
+        if (names.empty()) {
+            // (no rows: the columns are those that the schema names under the table, `programs.name`, and are not hidden)
+            for (const std::pair<const std::string, BMessage>& entry : fAttributes) {
+                if (entry.first.compare(0, tableKey.size() + 1, tableKey + ".") != 0)
+                    continue;
+                const std::string column = entry.first.substr(tableKey.size() + 1);
+                if (!column.empty() && column.find('.') == std::string::npos && !entry.second.GetBool(form::kAttrHidden, false))
+                    names.push_back(column);
+            }
         }
         sortByOrder(&names);
         for (const std::string& field : names)

@@ -781,7 +781,7 @@ TestButton(TestWindow* w)
     CHECK(button != NULL && strcmp(button->Label(), "Go now") == 0);
     BStringView* shown = dynamic_cast<BStringView*>(w->view->ControlFor("note"));
     CHECK(shown != NULL && strcmp(shown->Text(), "Vienna, AT") == 0);                  // (beside the button, in the same line)
-    CHECK(shown != NULL && shown->Parent() == button->Parent());
+    CHECK(shown != NULL && button->Parent() != NULL && shown->Parent() == button->Parent()->Parent());          // (the button is in a line of its own at the right of the column of the labels, the text in the grid next to it)
     BStringView* line = dynamic_cast<BStringView*>(w->view->ControlFor("state"));
     CHECK(line != NULL && strcmp(line->Text(), "idle") == 0);                           // (a line of its own, no text field)
     CHECK(dynamic_cast<BTextControl*>(w->view->ControlFor("state")) == NULL);
@@ -853,6 +853,52 @@ TestReorder(TestWindow* w)
     CHECK(MoveValue(&moved, "", "rows", 0, 2) == B_OK && RowName(moved, 0) == "b" && RowName(moved, 1) == "c" && RowName(moved, 2) == "a");
     CHECK(MoveValue(&moved, "", "rows", 0, 3) == B_BAD_INDEX && MoveValue(&moved, "", "nothing", 0, 1) == B_NAME_NOT_FOUND);
     CHECK(RowName(moved, 0) == "b");
+}
+
+
+// a table that the schema has and the message has no rows for is shown empty, with the titles of its columns; a cell whose column has `busy_field` shows a spinner while the field of its row is true
+static void
+TestEmptyAndBusy(TestWindow* w)
+{
+    BMessage settings, schema;
+    settings.AddString("title", "x");
+    BMessage rows;
+    rows.AddString(form::kAttrKind, form::kKindTable);
+    schema.AddMessage("rows", &rows);
+    BMessage name;
+    name.AddString(form::kAttrLabel, "Name");
+    name.AddInt32(form::kAttrOrder, 0);
+    schema.AddMessage("rows.name", &name);
+    BMessage hidden;
+    hidden.AddBool(form::kAttrHidden, true);
+    schema.AddMessage("rows.id", &hidden);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+    ShojiTableControl* table = Table(w, "rows");
+    CHECK(table != NULL && table->CountRows() == 0 && table->CountColumns() == 1 && table->ColumnLabel(0) == "Name");
+
+    // the same with two rows, one of them busy
+    for (const char* each : {"a", "b"}) {
+        BMessage row;
+        row.AddString("name", each);
+        row.AddString("id", each);
+        row.AddBool("busy", strcmp(each, "a") == 0);
+        settings.AddMessage("rows", &row);
+    }
+    BMessage busyColumn;
+    busyColumn.AddString(form::kAttrLabel, "Name");
+    busyColumn.AddBool(form::kAttrReadOnly, true);
+    busyColumn.AddString(form::kAttrBusyField, "busy");
+    busyColumn.AddInt32(form::kAttrOrder, 0);
+    schema.ReplaceMessage("rows.name", &busyColumn);
+    BMessage hiddenBusy;
+    hiddenBusy.AddBool(form::kAttrHidden, true);
+    schema.AddMessage("rows.busy", &hiddenBusy);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+    table = Table(w, "rows");
+    CHECK(table != NULL && table->CountRows() == 2 && table->CountColumns() == 1);
+    CHECK(table != NULL && table->CellAt(0, 0)->busy && !table->CellAt(1, 0)->busy);
 }
 
 
@@ -1102,6 +1148,7 @@ int main(int argc, char** argv)
     TestTables(window);
     TestButton(window);
     TestReorder(window);
+    TestEmptyAndBusy(window);
     window->Quit();
     TestNoTree();
 
