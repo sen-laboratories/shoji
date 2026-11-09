@@ -119,6 +119,8 @@ private:
     void                    _UpdateEnabled();
     void                    _ShowList(const std::string& node, const std::string& name);
     void                    _Changed(const char* path, const char* value);
+    /** a row of the table at `tablePath` was moved from one place to another: the working copy follows, the target is told */
+    void                    _ReorderRows(const std::string& tablePath, int32 from, int32 to);
     void                    _HandleSetData(BMessage* message);
     void                    _Reply(BMessage* message, status_t result);
 

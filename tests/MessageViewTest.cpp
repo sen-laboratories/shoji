@@ -795,6 +795,67 @@ TestButton(TestWindow* w)
 }
 
 
+// a table with `reorderable` in its schema: the rows are moved (the mouse does it through the same call, as a drag of the system), the working copy has the array in the new order, the target is
+// told the whole message, the cells are named by their new rows; a table without the flag does not move
+static std::string
+RowName(const BMessage& settings, int32 index)
+{
+    BMessage row;
+    return settings.FindMessage("rows", index, &row) == B_OK ? row.GetString("name", "") : std::string("<none>");
+}
+
+
+static void
+TestReorder(TestWindow* w)
+{
+    BMessage settings, schema;
+    for (const char* name : {"a", "b", "c"}) {
+        BMessage row;
+        row.AddString("name", name);
+        row.AddBool("on", true);
+        settings.AddMessage("rows", &row);
+    }
+    BMessage rows;
+    rows.AddString(form::kAttrKind, form::kKindTable);
+    rows.AddBool(form::kAttrReorderable, true);
+    schema.AddMessage("rows", &rows);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+    w->Reset();
+
+    ShojiTableControl* table = Table(w, "rows");
+    CHECK(table != NULL && table->IsReorderable() && table->CountRows() == 3);
+    CHECK(table != NULL && table->CellAt(0, 0)->text == "a");
+
+    // the first row to the end: the places are those between rows (3 is after the last)
+    CHECK(table->MoveRow(0, 3));
+    w->Settle();
+    CHECK(w->whole == 1 && w->changed == 1);
+    CHECK(RowName(w->lastSettings, 0) == "b" && RowName(w->lastSettings, 1) == "c" && RowName(w->lastSettings, 2) == "a");
+    CHECK(RowName(w->view->Settings(), 2) == "a");
+    table = Table(w, "rows");
+    CHECK(table->CellAt(0, 0)->text == "b" && table->CellAt(2, 0)->text == "a");
+    CHECK(table->CellAt(0, 1)->path == "rows_00.on");                               // (named by the new row)
+
+    // the last one to the front, and a move that moves nothing
+    w->Reset();
+    CHECK(table->MoveRow(2, 0));
+    w->Settle();
+    CHECK(RowName(w->view->Settings(), 0) == "a" && RowName(w->view->Settings(), 1) == "b" && RowName(w->view->Settings(), 2) == "c");
+    table = Table(w, "rows");
+    w->Reset();
+    CHECK(!table->MoveRow(1, 1) && !table->MoveRow(1, 2) && !table->MoveRow(7, 0) && !table->MoveRow(-1, 0));
+    w->Settle();
+    CHECK(w->changed == 0);
+
+    // MoveValue itself: the other values keep their order, a wrong index changes nothing
+    BMessage moved(w->view->Settings());
+    CHECK(MoveValue(&moved, "", "rows", 0, 2) == B_OK && RowName(moved, 0) == "b" && RowName(moved, 1) == "c" && RowName(moved, 2) == "a");
+    CHECK(MoveValue(&moved, "", "rows", 0, 3) == B_BAD_INDEX && MoveValue(&moved, "", "nothing", 0, 1) == B_NAME_NOT_FOUND);
+    CHECK(RowName(moved, 0) == "b");
+}
+
+
 static void
 TestTables(TestWindow* w)
 {
@@ -1040,6 +1101,7 @@ int main(int argc, char** argv)
     TestEnabledWhen(window);
     TestTables(window);
     TestButton(window);
+    TestReorder(window);
     window->Quit();
     TestNoTree();
 

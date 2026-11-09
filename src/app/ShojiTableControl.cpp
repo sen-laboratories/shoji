@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <math.h>
+#include <string.h>
 
 namespace {
 
@@ -199,7 +200,7 @@ private:
 };
 
 
-/** The list: a click uses the cell that it is on, and the arrows go from cell to cell. */
+/** The list: a click uses the cell that it is on, and the arrows go from cell to cell. A table that can be reordered has its rows dragged. */
 class ShojiTableList : public BListView {
 public:
     ShojiTableList(ShojiTableControl* table) : BListView("table rows", B_SINGLE_SELECTION_LIST), fTable(table) {}
@@ -216,12 +217,90 @@ public:
         if (!IsItemSelected(index))
             Select(index);
         const int32 column = fTable->ColumnAt(where.x, Bounds().Width() + 1);
+        if (fTable->IsReorderable() && fTable->fEditable) {
+            // (a click is used when the button is let go, a move with the button down is a drag of the row)
+            fPressRow = index;
+            fPressColumn = column;
+            fPressPoint = where;
+            SetMouseEventMask(B_POINTER_EVENTS, B_NO_POINTER_HISTORY);
+            return;
+        }
         if (column >= 0)
             fTable->_ClickCell(index, column);
     }
 
+    virtual void MouseMoved(BPoint where, uint32 transit, const BMessage* dragMessage)
+    {
+        if (dragMessage != NULL && _IsRowDrag(dragMessage)) {
+            // (a row is over the list: the line shows where it would go, and the list scrolls when the row is near its end)
+            if (transit == B_EXITED_VIEW) {
+                _ShowInsertion(-1);
+            } else {
+                _ShowInsertion(_InsertionAt(where.y));
+                _ScrollNear(where.y);
+            }
+            return;
+        }
+        if (fPressRow >= 0) {
+            BPoint moved = where - fPressPoint;
+            if (fabsf(moved.x) + fabsf(moved.y) > 4) {
+                const int32 row = fPressRow;
+                fPressRow = -1;
+                _BeginDrag(row);
+            }
+            return;
+        }
+        BListView::MouseMoved(where, transit, dragMessage);
+    }
+
+    virtual void MouseUp(BPoint where)
+    {
+        if (fPressRow >= 0) {
+            const int32 row = fPressRow;
+            const int32 column = fPressColumn;
+            fPressRow = -1;
+            if (IndexOf(where) == row && fTable->ColumnAt(where.x, Bounds().Width() + 1) == column && column >= 0)
+                fTable->_ClickCell(row, column);
+            return;
+        }
+        BListView::MouseUp(where);
+    }
+
+    virtual void MessageReceived(BMessage* message)
+    {
+        if (message->what == kRowDragMessage && message->WasDropped() && _IsRowDrag(message)) {
+            int32 row = -1;
+            if (message->FindInt32("shoji:row", &row) == B_OK) {
+                const BPoint where = ConvertFromScreen(message->DropPoint());
+                const int32 before = _InsertionAt(where.y);
+                _ShowInsertion(-1);
+                fTable->MoveRow(row, before);
+            }
+            return;
+        }
+        BListView::MessageReceived(message);
+    }
+
+    virtual void Draw(BRect updateRect)
+    {
+        BListView::Draw(updateRect);
+        if (fInsertion >= 0) {
+            SetHighColor(ui_color(B_KEYBOARD_NAVIGATION_COLOR));
+            const float y = fInsertion * RowHeight();
+            FillRect(BRect(Bounds().left, y - 1, Bounds().right, y));
+        }
+    }
+
     virtual void KeyDown(const char* bytes, int32 numBytes)
     {
+        if (numBytes == 1 && fTable->IsReorderable() && fTable->fEditable && (modifiers() & B_CONTROL_KEY) != 0
+                && (bytes[0] == B_UP_ARROW || bytes[0] == B_DOWN_ARROW)) {
+            // (Ctrl and an arrow: the row goes up or down by one)
+            const int32 row = CurrentSelection();
+            if (row >= 0)
+                fTable->MoveRow(row, bytes[0] == B_UP_ARROW ? row - 1 : row + 2);
+            return;
+        }
         if (numBytes == 1) {
             switch (bytes[0]) {
                 case B_LEFT_ARROW:
@@ -256,7 +335,54 @@ public:
     virtual bool InitiateDrag(BPoint, int32, bool) { return false; }
 
 private:
+    bool _IsRowDrag(const BMessage* message) const
+    {
+        return message->what == kRowDragMessage && strcmp(message->GetString("shoji:table", ""), fTable->Name()) == 0;
+    }
+
+    /** the place between rows (0 before the first, the number of rows after the last) that is nearest to a height */
+    int32 _InsertionAt(float y) const
+    {
+        const int32 place = (int32)floorf((y + RowHeight() / 2) / RowHeight());
+        return std::max<int32>(0, std::min(place, CountItems()));
+    }
+
+    void _ShowInsertion(int32 place)
+    {
+        if (place == fInsertion)
+            return;
+        fInsertion = place;
+        Invalidate();
+    }
+
+    void _ScrollNear(float y)
+    {
+        BScrollBar* bar = ScrollBar(B_VERTICAL);
+        if (bar == NULL)
+            return;
+        const BRect bounds = Bounds();
+        if (y < bounds.top + RowHeight() * 0.6f)
+            bar->SetValue(bar->Value() - RowHeight() / 2);
+        else if (y > bounds.bottom - RowHeight() * 0.6f)
+            bar->SetValue(bar->Value() + RowHeight() / 2);
+    }
+
+    /** the row is dragged: a message that says which (the table and the row, and the text of the first cell for a drop in a text field), with the outline of the row */
+    void _BeginDrag(int32 row)
+    {
+        BMessage drag(kRowDragMessage);
+        drag.AddString("shoji:table", fTable->Name());
+        drag.AddInt32("shoji:row", row);
+        if (row >= 0 && row < fTable->CountRows() && !fTable->fRows[row].empty())
+            drag.AddString("text/plain", fTable->fRows[row][0].text.c_str());
+        DragMessage(&drag, ItemFrame(row), this);
+    }
+
     ShojiTableControl*  fTable;
+    int32               fPressRow = -1;
+    int32               fPressColumn = -1;
+    BPoint              fPressPoint;
+    int32               fInsertion = -1;
 };
 
 
@@ -372,6 +498,7 @@ ShojiTableControl::ShojiTableControl(const char* name)
     fColumn(0),
     fMessage(NULL),
     fEditable(true),
+    fReorderable(false),
     fHeader(NULL),
     fList(NULL),
     fScroll(NULL),
@@ -726,6 +853,38 @@ void ShojiTableControl::MessageReceived(BMessage* message)
             BGroupView::MessageReceived(message);
             break;
     }
+}
+
+
+bool ShojiTableControl::MoveRow(int32 row, int32 before)
+{
+    const int32 count = (int32)fRows.size();
+    if (!fReorderable || !fEditable || row < 0 || row >= count)
+        return false;
+    before = std::max<int32>(0, std::min(before, count));
+    // (`before` is a place among the rows as they are now: after the row is taken out, the places after it are one less)
+    const int32 to = before > row ? before - 1 : before;
+    if (to == row)
+        return false;
+
+    _EndEdit(false, false);
+    Row moved = fRows[row];
+    fRows.erase(fRows.begin() + row);
+    fRows.insert(fRows.begin() + to, moved);
+    fList->MoveItem(row, to);
+    fList->Select(to);
+    fHeader->Invalidate();
+    fList->Invalidate();
+
+    // the target is told, with the message of the table: the owner moves the row in its data and gives the rows again
+    if (fTarget.IsValid()) {
+        BMessage message(fMessage != NULL ? *fMessage : BMessage(kChanged));
+        message.AddString("table", Name());
+        message.AddInt32("reorder_from", row);
+        message.AddInt32("reorder_to", to);
+        fTarget.SendMessage(&message);
+    }
+    return true;
 }
 
 

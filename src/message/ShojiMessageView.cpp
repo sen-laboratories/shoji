@@ -595,8 +595,12 @@ void ShojiMessageView::MessageReceived(BMessage* message)
         {
             const char* path;
             const char* value;
-            if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK)
+            int32 from, to;
+            if (message->FindInt32("reorder_from", &from) == B_OK && message->FindInt32("reorder_to", &to) == B_OK) {
+                _ReorderRows(message->GetString("table", ""), from, to);
+            } else if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK) {
                 _ApplyText(path, value);
+            }
             break;
         }
         case kMsgSelect:
@@ -1247,6 +1251,7 @@ void ShojiMessageView::_AddTable(BGridView* pane, int32* row, const std::string&
     ShojiTableControl* table = new ShojiTableControl(entry.path.c_str());
     table->SetMessage(new BMessage(kMsgTable));
     table->SetEditable(fEditable);
+    table->SetReorderable(kind == "table" && attributes.GetBool(form::kAttrReorderable, false));
     std::map<std::string, std::vector<float> >::const_iterator widths = fTableWidths.find(entry.path);
     if (widths != fTableWidths.end())
         table->SetUserWidths(widths->second);
@@ -1645,6 +1650,26 @@ void ShojiMessageView::_Reply(BMessage* message, status_t result)
     reply.AddInt32(form::kFieldResult, result);
     reply.AddInt32(form::kFieldProtocol, form::kProtocol);
     message->SendReply(&reply);
+}
+
+
+// A row of a table was moved (the table that the schema calls `reorderable`): the rows of the array are moved the same in the working copy, and the target is told the whole
+// message, in which the array has the new order (a change of one value does not tell an order). The rows are made again, because their cells are named by their row.
+void ShojiMessageView::_ReorderRows(const std::string& tablePath, int32 from, int32 to)
+{
+    for (const Table& table : fTables) {
+        if (table.path != tablePath || table.kind != "table")
+            continue;
+        BMessage changed(fWorking);
+        if (fEditable && MoveValue(&changed, table.node, table.name, from, to) == B_OK) {
+            fWorking = changed;
+            _RefreshTables(std::string());
+            _Changed(NULL, NULL);
+        } else {
+            _RefreshTables(std::string());
+        }
+        return;
+    }
 }
 
 

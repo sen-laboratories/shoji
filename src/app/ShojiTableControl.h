@@ -17,6 +17,10 @@ class ShojiTableEditor;
 class ShojiTableHeader;
 class ShojiTableList;
 
+
+/** The drag message of a row that is moved with the mouse: `shoji:table` (the name of the table), `shoji:row` (int32, the row), and the text of the first cell as `text/plain`. */
+const uint32 kRowDragMessage = 'SThr';
+
 /**
  * A table of values: a row of cells for each thing, a column for each kind of value (the form of a message makes one from an array of messages, or from the fields of a
  * message: `kind = table` and `kind = properties` of the schema, docs/spec-settings-and-message-template.md in sento).
@@ -28,6 +32,9 @@ class ShojiTableList;
  *
  * The table keeps nothing of what is changed. It tells the target (the message of SetMessage(), with `path` (the path key of the cell) and `value` (the new value as text) added)
  * and shows what it is given with SetRows(): whoever owns the data applies the change and gives the rows again, so that a value that was refused goes back.
+ *
+ * **Reordering** is a flag (SetReorderable): a row is dragged with the mouse (a message drag of the system: kRowDragMessage, so the list takes drops of rows and a line shows where the
+ * row will go) or moved with Ctrl and the arrows. A click is used when the button is released, then, so that a click and a drag can be told apart.
  */
 class ShojiTableControl : public BGroupView {
 public:
@@ -108,6 +115,15 @@ public:
     /** the divider (between a column and the next) that is at `x` in the coordinates of the list, within a few pixels; -1 if there is none */
     int32                   DividerAt(float x, float width) const;
 
+    /**
+     * Whether the rows can be moved: dragged with the mouse (a drag message of the kind kRowDragMessage that carries the table and the row, dropped on the list), or with Ctrl and the arrows up and
+     * down. The target gets the message of the table (`SetMessage`) with `reorder_from` and `reorder_to` (int32, the row before and after the move) and `table` (the name of the control).
+     */
+    void                    SetReorderable(bool reorderable) { fReorderable = reorderable; }
+    bool                    IsReorderable() const { return fReorderable; }
+    /** moves a row to a place before the row `before` (0 to the number of rows: the end); the rows, the selection and the target follow. False if nothing moves. */
+    bool                    MoveRow(int32 row, int32 before);
+
     virtual void            MessageReceived(BMessage* message);
 
 private:
@@ -136,6 +152,7 @@ private:
     BMessage*               fMessage;
     BMessenger              fTarget;
     bool                    fEditable;
+    bool                    fReorderable;
 
     ShojiTableHeader*       fHeader;
     ShojiTableList*         fList;
