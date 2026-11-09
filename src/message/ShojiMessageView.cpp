@@ -38,6 +38,7 @@
 
 #include "../app/ShojiDateControl.h"
 #include "../app/ShojiListControl.h"
+#include "../app/ShojiTableControl.h"
 
 using namespace sen::settings;
 namespace form = sen::settings::form;
@@ -52,7 +53,8 @@ enum {
     kMsgList    = 'MVls',       // a list changed: node, name
     kMsgNumber  = 'MVnu',       // a spinner or a slider: path
     kMsgDate    = 'MVda',       // a date: path
-    kMsgSelect  = 'MVse'        // a node of the tree was selected
+    kMsgSelect  = 'MVse',       // a node of the tree was selected
+    kMsgTable   = 'MVtb'        // a cell of a table was changed: path, value
 };
 
 // the values of a list are written in one string for the list control, separated by this (a value that contains it is quoted)
@@ -198,15 +200,54 @@ bool NodeIn(const BMessage& root, const std::string& path, BMessage* node)
 }
 
 
-bool HasNestedMessages(const BMessage& message)
+// whether the schema of a field makes a table of it (`kind = table`: the rows are an array of messages; `kind = properties`: the rows are the fields of a message)
+bool IsTableKind(const BMessage& attributes, std::string* kind = NULL)
 {
-    char* name = NULL;
-    type_code type = 0;
-    for (int32 i = 0; message.GetInfo(B_ANY_TYPE, i, &name, &type, NULL) == B_OK; i++) {
-        if (type == B_MESSAGE_TYPE)
+    const char* text = NULL;
+    if (attributes.FindString(form::kAttrKind, &text) != B_OK || text == NULL)
+        return false;
+    if (strcmp(text, form::kKindTable) != 0 && strcmp(text, form::kKindProperties) != 0)
+        return false;
+    if (kind != NULL)
+        *kind = text;
+    return true;
+}
+
+
+// whether a condition of `enabled_when` holds for the fields of a message: `key=value`, several of them with `&` (all hold) and alternatives with `|` (one holds)
+bool ConditionHolds(const std::string& condition, const BMessage& message)
+{
+    for (size_t from = 0; from <= condition.size(); ) {
+        size_t end = condition.find('|', from);
+        if (end == std::string::npos)
+            end = condition.size();
+        const std::string alternative = condition.substr(from, end - from);
+        from = end + 1;
+
+        bool all = !alternative.empty();
+        for (size_t start = 0; start <= alternative.size() && all; ) {
+            size_t stop = alternative.find('&', start);
+            if (stop == std::string::npos)
+                stop = alternative.size();
+            const std::string term = alternative.substr(start, stop - start);
+            start = stop + 1;
+            const size_t equals = term.find('=');
+            std::string have;
+            all = equals != std::string::npos
+                && GetText(message, EscapeSegment(term.substr(0, equals)), &have) == B_OK && have == term.substr(equals + 1);
+        }
+        if (all)
             return true;
     }
     return false;
+}
+
+
+// whether a path is a cell of the table at `table` (`programs_02.level` of `programs`, `nested.mode` of `nested`)
+bool InTable(const std::string& path, const std::string& table)
+{
+    return path.compare(0, table.size(), table) == 0
+        && (path.size() == table.size() || path[table.size()] == '_' || path[table.size()] == '.');
 }
 
 
@@ -217,6 +258,10 @@ void Connect(BView* parent, BHandler* target)
         BView* child = parent->ChildAt(i);
         if (ShojiListControl* list = dynamic_cast<ShojiListControl*>(child)) {
             list->SetTarget(target);
+            continue;
+        }
+        if (ShojiTableControl* table = dynamic_cast<ShojiTableControl*>(child)) {
+            table->SetTarget(target);
             continue;
         }
         if (BMenuField* menuField = dynamic_cast<BMenuField*>(child)) {
@@ -403,6 +448,17 @@ void ShojiMessageView::CommitPending()
         if (GetText(fWorking, path, &current) == B_OK && current != control->Text())
             _ApplyText(path, control->Text());
     }
+
+    // a cell of a table that is being edited
+    const std::vector<Table> tables = fTables;
+    for (const Table& table : tables) {
+        ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(table.path.c_str()));
+        std::string path, text;
+        if (control != NULL && control->PendingEdit(&path, &text)) {
+            control->EndEdit(false);
+            _ApplyText(path, text);
+        }
+    }
 }
 
 
@@ -519,6 +575,14 @@ void ShojiMessageView::MessageReceived(BMessage* message)
                 _ApplyText(path, control->DateText().String());
             break;
         }
+        case kMsgTable:
+        {
+            const char* path;
+            const char* value;
+            if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK)
+                _ApplyText(path, value);
+            break;
+        }
         case kMsgSelect:
         {
             NodeItem* item = dynamic_cast<NodeItem*>(fTree->FullListItemAt(fTree->FullListCurrentSelection()));
@@ -618,7 +682,15 @@ void ShojiMessageView::_BuildTree()
     for (BListItem* item : old)
         delete item;
 
-    if (!HasNestedMessages(fWorking)) {
+    // (a message that the schema shows as a table is no node of the tree)
+    bool nodes = false;
+    char* fieldName = NULL;
+    type_code fieldType = 0;
+    for (int32 i = 0; fWorking.GetInfo(B_ANY_TYPE, i, &fieldName, &fieldType, NULL) == B_OK; i++) {
+        if (fieldType == B_MESSAGE_TYPE && !IsTableKind(_SchemaOf(fieldName)))
+            nodes = true;
+    }
+    if (!nodes) {
         if (!fTreeScroll->IsHidden(fTreeScroll))
             fTreeScroll->Hide();
         return;
@@ -641,7 +713,7 @@ void ShojiMessageView::_AddNodes(const BMessage& message, const std::string& pre
         const std::string fieldName = name;
         const std::string fieldKey = ChildPath(key, fieldName);
         const BMessage attributes = _SchemaOf(fieldKey);
-        if (attributes.GetBool(form::kAttrHidden, false))
+        if (attributes.GetBool(form::kAttrHidden, false) || IsTableKind(attributes))
             continue;
 
         for (int32 index = 0; index < count; index++) {
@@ -672,6 +744,7 @@ void ShojiMessageView::_ShowNode(const std::string& path)
     BGridView* pane = new BGridView("sen:node");
     pane->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
     fTextPaths.clear();
+    fTables.clear();
     _FillPane(pane, path);
 
     BView* old = fPane;
@@ -707,8 +780,10 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
 
         // the fields that are there, and the lists that were emptied; in the order of the schema where it has one
         struct Shown {
-            Known   field;
-            double  order;
+            Known       field;
+            double      order;
+            bool        table = false;      ///< a message that is shown as a table
+            std::string kind;
         };
         std::vector<Shown> shown;
         const std::vector<Known>& known = fKnown[node];
@@ -729,10 +804,26 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
                 continue;       // (the type of a field is what it was; one that changed is not edited under the old one)
             shown.push_back(Shown{field, (double)attributes.GetInt32(form::kAttrOrder, (int32)i)});
         }
+
+        // the messages that the schema makes tables (`kind = table` or `properties`), after the other fields unless the schema has an order
+        char* messageName = NULL;
+        type_code messageType = 0;
+        for (int32 i = 0; message.GetInfo(B_MESSAGE_TYPE, i, &messageName, &messageType, NULL) == B_OK; i++) {
+            const BMessage attributes = _SchemaOf(ChildPath(key, messageName));
+            std::string kind;
+            if (attributes.GetBool(form::kAttrHidden, false) || !IsTableKind(attributes, &kind))
+                continue;
+            shown.push_back(Shown{Known{messageName, B_MESSAGE_TYPE, false},
+                (double)attributes.GetInt32(form::kAttrOrder, (int32)(known.size() + i)), true, kind});
+        }
         std::stable_sort(shown.begin(), shown.end(), [](const Shown& a, const Shown& b) { return a.order < b.order; });
 
-        for (const Shown& item : shown)
-            _AddField(pane, &row, node, key, item.field, message);
+        for (const Shown& item : shown) {
+            if (item.table)
+                _AddTable(pane, &row, node, key, item.field.name, item.kind);
+            else
+                _AddField(pane, &row, node, key, item.field, message);
+        }
     }
 
     if (row == 0) {
@@ -789,7 +880,7 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         for (size_t i = 0; i < count && addressable; i++) {
             const std::string segment = SegmentFor(field.name, i, count, info);
             std::string text;
-            if (segment.empty() || GetText(message, segment, &text) != B_OK)
+            if (segment.empty() || GetText(message, EscapeSegment(segment), &text) != B_OK)
                 addressable = false;
             else
                 texts.push_back(text);
@@ -819,7 +910,7 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
 
     const std::string segment = SegmentFor(field.name, 0, 1, info);
     std::string text;
-    if (segment.empty() || GetText(message, segment, &text) != B_OK) {
+    if (segment.empty() || GetText(message, EscapeSegment(segment), &text) != B_OK) {
         readOnly("(not editable here)");
         return;
     }
@@ -1019,6 +1110,185 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
 }
 
 
+// A message that is shown as a table: a label and the table, over the whole width of the pane.
+void ShojiMessageView::_AddTable(BGridView* pane, int32* row, const std::string& node, const std::string& key, const std::string& name, const std::string& kind)
+{
+    BGridLayout* layout = pane->GridLayout();
+    const BMessage attributes = _SchemaOf(ChildPath(key, name));
+    const std::string label = _LabelOf(attributes, name);
+    const char* help = NULL;
+    attributes.FindString(form::kAttrHelp, &help);
+
+    Table entry;
+    entry.path = ChildPath(node, name);
+    entry.node = node;
+    entry.name = name;
+    entry.kind = kind;
+
+    ShojiTableControl* table = new ShojiTableControl(entry.path.c_str());
+    table->SetMessage(new BMessage(kMsgTable));
+    table->SetEditable(fEditable);
+    if (help != NULL)
+        table->SetToolTip(help);
+    fTables.push_back(entry);
+    _FillTable(table, entry);
+
+    BStringView* title = new BStringView("sen:label", label.c_str());
+    title->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_TOP));
+    layout->AddView(title, 0, *row, 2, 1);
+    (*row)++;
+    layout->AddView(table, 0, *row, 2, 1);
+    (*row)++;
+}
+
+
+// The columns and the rows of a table from the working copy. `table`: a row for each message of the array, a column for each field that they have (the order and the
+// label of the column are those of the schema of the field: `programs.level`). `properties`: a row for each field of the message, the name and the value.
+// A cell takes its kind from the value and the schema of its field: a check box for a bool, a menu if the schema gives choices, else a text; `readonly` in the schema makes a
+// cell that only shows; `enabled_when` is read in the message of the row, so that a cell can wait for another of its row.
+void ShojiMessageView::_FillTable(ShojiTableControl* control, const Table& table)
+{
+    BMessage message;
+    if (!NodeIn(fWorking, table.node, &message))
+        return;
+    const std::string nodeKey = table.node.empty() ? std::string() : _SchemaKey(table.node);
+    const std::string tableKey = ChildPath(nodeKey, table.name);
+    const BMessage tableAttributes = _SchemaOf(tableKey);
+    const FieldInfo info = detail::InfoOf(message);
+    type_code type = 0;
+    int32 count = 0;
+    message.GetInfo(table.name.c_str(), &type, &count);
+
+    // the cell of a field of a message (`ownerPath` is the path of the message)
+    auto cellFor = [this, &tableKey](const BMessage& owner, const std::string& ownerPath, const std::string& field) {
+        ShojiTableControl::Cell cell;
+        const BMessage attributes = _SchemaOf(ChildPath(tableKey, field));
+        type_code have = 0;
+        int32 values = 0;
+        if (owner.GetInfo(field.c_str(), &have, &values) != B_OK)
+            return cell;
+        if (!detail::IsText(have)) {
+            cell.text = std::string("(") + TypeName(have) + ")";
+            return cell;
+        }
+        if (values != 1) {
+            cell.text = "(" + std::to_string(values) + " values)";
+            return cell;
+        }
+        const std::string segment = SegmentFor(field, 0, 1, detail::InfoOf(owner));
+        std::string text;
+        if (segment.empty() || GetText(owner, EscapeSegment(segment), &text) != B_OK) {
+            cell.text = "(not editable here)";
+            return cell;
+        }
+        cell.path = ChildPath(ownerPath, segment);
+        cell.text = text;
+        cell.editable = !attributes.GetBool(form::kAttrReadOnly, false);
+        const char* rule = NULL;
+        if (attributes.FindString(form::kAttrEnabledWhen, &rule) == B_OK && rule != NULL)
+            cell.enabled = ConditionHolds(rule, owner);
+
+        type_code choicesType = 0;
+        int32 choiceCount = 0;
+        if (have == B_BOOL_TYPE) {
+            cell.kind = ShojiTableControl::kBool;
+        } else if (attributes.GetInfo(form::kAttrChoices, &choicesType, &choiceCount) == B_OK && choicesType == B_STRING_TYPE && choiceCount > 0) {
+            cell.kind = ShojiTableControl::kChoice;
+            for (int32 i = 0; i < choiceCount; i++) {
+                const char* value = attributes.GetString(form::kAttrChoices, i, "");
+                if (strcmp(value, form::kChoiceSeparator) == 0)
+                    continue;
+                cell.choices.push_back(ShojiTableControl::Choice{value, attributes.GetString(form::kAttrChoiceLabels, i, value)});
+            }
+        }
+        return cell;
+    };
+
+    // the fields of a message that a table shows, in the order of the schema (else of the message)
+    auto fieldsOf = [this, &tableKey](const BMessage& owner, std::vector<std::string>* names) {
+        char* name = NULL;
+        type_code have = 0;
+        for (int32 i = 0; owner.GetInfo(B_ANY_TYPE, i, &name, &have, NULL) == B_OK; i++) {
+            if (have == B_MESSAGE_TYPE || _SchemaOf(ChildPath(tableKey, name)).GetBool(form::kAttrHidden, false))
+                continue;
+            if (std::find(names->begin(), names->end(), name) == names->end())
+                names->push_back(name);
+        }
+    };
+    auto sortByOrder = [this, &tableKey](std::vector<std::string>* names) {
+        std::vector<std::pair<double, std::string> > ordered;
+        for (size_t i = 0; i < names->size(); i++)
+            ordered.push_back(std::make_pair((double)_SchemaOf(ChildPath(tableKey, (*names)[i])).GetInt32(form::kAttrOrder, (int32)i), (*names)[i]));
+        std::stable_sort(ordered.begin(), ordered.end(), [](const std::pair<double, std::string>& a, const std::pair<double, std::string>& b) { return a.first < b.first; });
+        for (size_t i = 0; i < names->size(); i++)
+            (*names)[i] = ordered[i].second;
+    };
+
+    std::vector<std::string> labels;
+    std::vector<ShojiTableControl::Row> rows;
+
+    if (table.kind == form::kKindProperties) {
+        labels.push_back(tableAttributes.GetString(form::kAttrColumnLabels, 0, "Name"));
+        labels.push_back(tableAttributes.GetString(form::kAttrColumnLabels, 1, "Value"));
+        BMessage nested;
+        const std::string segment = SegmentFor(table.name, 0, (size_t)count, info);
+        if (count == 1 && !segment.empty() && message.FindMessage(table.name.c_str(), 0, &nested) == B_OK) {
+            const std::string ownerPath = ChildPath(table.node, segment);
+            std::vector<std::string> names;
+            fieldsOf(nested, &names);
+            sortByOrder(&names);
+            for (const std::string& field : names) {
+                ShojiTableControl::Row row;
+                ShojiTableControl::Cell name;
+                name.text = _LabelOf(_SchemaOf(ChildPath(tableKey, field)), field);
+                row.push_back(name);
+                row.push_back(cellFor(nested, ownerPath, field));
+                rows.push_back(row);
+            }
+        }
+    } else {
+        std::vector<std::string> names;
+        for (int32 i = 0; i < count; i++) {
+            BMessage each;
+            if (message.FindMessage(table.name.c_str(), i, &each) == B_OK)
+                fieldsOf(each, &names);
+        }
+        sortByOrder(&names);
+        for (const std::string& field : names)
+            labels.push_back(_LabelOf(_SchemaOf(ChildPath(tableKey, field)), field));
+
+        for (int32 i = 0; i < count; i++) {
+            // a row whose message cannot be named cannot be edited: it is not shown
+            const std::string segment = SegmentFor(table.name, (size_t)i, (size_t)count, info);
+            BMessage each;
+            if (segment.empty() || message.FindMessage(table.name.c_str(), i, &each) != B_OK)
+                continue;
+            const std::string ownerPath = ChildPath(table.node, segment);
+            ShojiTableControl::Row row;
+            for (const std::string& field : names)
+                row.push_back(cellFor(each, ownerPath, field));
+            rows.push_back(row);
+        }
+    }
+
+    control->SetColumns(labels);
+    control->SetRows(rows);
+}
+
+
+void ShojiMessageView::_RefreshTables(const std::string& path)
+{
+    const std::vector<Table> tables = fTables;
+    for (const Table& table : tables) {
+        if (!path.empty() && !InTable(path, table.path))
+            continue;
+        ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(table.path.c_str()));
+        if (control != NULL)
+            _FillTable(control, table);
+    }
+}
+
+
 // A value that was typed or chosen: checked against its type and the range of the schema, put into the working copy, and told to the target. What is shown is
 // the value as it is stored (007 is 7). A value that does not fit is refused and the control shows the old one.
 void ShojiMessageView::_ApplyText(const std::string& path, const std::string& text)
@@ -1115,6 +1385,14 @@ void ShojiMessageView::_Refuse(const std::string& path, const std::string& text,
 // the control of a value shows the value that the working copy has
 void ShojiMessageView::_Show(const std::string& path)
 {
+    // a cell of a table: the rows are made again from the working copy
+    for (const Table& table : fTables) {
+        if (InTable(path, table.path)) {
+            _RefreshTables(path);
+            return;
+        }
+    }
+
     BView* control = ControlFor(path.c_str());
     std::string text;
     if (control == NULL || GetText(fWorking, path, &text) != B_OK)
@@ -1163,29 +1441,7 @@ void ShojiMessageView::_UpdateEnabled()
         if (attributes.FindString(form::kAttrEnabledWhen, &rule) != B_OK || rule == NULL)
             continue;
 
-        bool enabled = false;
-        const std::string condition = rule;
-        for (size_t from = 0; from <= condition.size() && !enabled; ) {
-            size_t end = condition.find('|', from);
-            if (end == std::string::npos)
-                end = condition.size();
-            const std::string alternative = condition.substr(from, end - from);
-            from = end + 1;
-
-            bool all = !alternative.empty();
-            for (size_t start = 0; start <= alternative.size() && all; ) {
-                size_t stop = alternative.find('&', start);
-                if (stop == std::string::npos)
-                    stop = alternative.size();
-                const std::string term = alternative.substr(start, stop - start);
-                start = stop + 1;
-                const size_t equals = term.find('=');
-                std::string have;
-                all = equals != std::string::npos
-                    && GetText(fWorking, ChildPath(fNode, term.substr(0, equals)), &have) == B_OK && have == term.substr(equals + 1);
-            }
-            enabled = all;
-        }
+        bool enabled = ConditionHolds(rule, message);
         enabled = enabled && fEditable;
 
         BView* control = ControlFor(ChildPath(fNode, known[i].name).c_str());
@@ -1212,7 +1468,7 @@ void ShojiMessageView::_ShowList(const std::string& node, const std::string& nam
         for (int32 i = 0; i < values; i++) {
             std::string text;
             const std::string segment = SegmentFor(name, (size_t)i, (size_t)values, info);
-            if (!segment.empty() && GetText(message, segment, &text) == B_OK)
+            if (!segment.empty() && GetText(message, EscapeSegment(segment), &text) == B_OK)
                 texts.push_back(text);
         }
     }

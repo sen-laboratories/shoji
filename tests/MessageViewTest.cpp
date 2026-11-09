@@ -7,12 +7,13 @@
 // target is told, the refusal of a value that does not fit, lists, nested messages, Revert and Defaults. Build and run on Haiku, in a session with a desktop:
 //   g++ -std=c++20 -Isrc/app -Isrc/message -I/boot/home/config/non-packaged/develop/headers -isystem /boot/system/develop/headers/private/shared
 //       -isystem /boot/system/develop/headers/private/interface tests/MessageViewTest.cpp src/message/ShojiMessageView.cpp src/app/ShojiListControl.cpp
-//       src/app/ShojiDateControl.cpp -o /tmp/message-view-test -lbe -lshared && /tmp/message-view-test [screenshot [node] | write file | date file]  (one command)
+//       src/app/ShojiTableControl.cpp src/app/ShojiDateControl.cpp -o /tmp/message-view-test -lbe -lshared && /tmp/message-view-test [screenshot [node] | write file | date file]  (one command)
 // With an argument, a window with the form stays for 25 seconds, for a screenshot (the second argument is the node of the tree to show, e.g. `nested.items_01`).
 
 #include "ShojiMessageView.h"
 #include "ShojiDateControl.h"
 #include "ShojiListControl.h"
+#include "ShojiTableControl.h"
 
 #include <Application.h>
 #include <Button.h>
@@ -660,6 +661,246 @@ TestEnabledWhen(TestWindow* w)
 }
 
 
+static ShojiTableControl* Table(TestWindow* w, const char* path) { return dynamic_cast<ShojiTableControl*>(w->view->ControlFor(path)); }
+
+// a table from an array of messages (`kind = table`) and one from the fields of a message (`kind = properties`)
+static void
+BuildTableData(BMessage* out, BMessage* outSchema)
+{
+    BMessage settings, schema;
+    const char* names[] = { "Alpha", "Beta", "Gamma" };
+    const char* programs[] = { "application/x-vnd.alpha", "application/x-vnd.beta", "application/x-vnd.gamma" };
+    const bool allowed[] = { true, true, false };
+    const char* levels[] = { "city", "country", "country" };
+    for (int i = 0; i < 3; i++) {
+        BMessage row;
+        row.AddString("name", names[i]);
+        row.AddString("program", programs[i]);
+        row.AddBool("allowed", allowed[i]);
+        row.AddString("level", levels[i]);
+        row.AddInt32("limit", 5 + i);
+        settings.AddMessage("programs", &row);
+    }
+    BMessage server;
+    server.AddString("host", "example.org");
+    server.AddInt32("port", 80);
+    server.AddBool("secure", true);
+    server.AddString("mode", "fast");
+    settings.AddMessage("server", &server);
+    settings.AddString("lookup", "ask");
+    settings.AddString("a.b", "dotted");
+
+    BMessage programsAttr, nameAttr, programAttr, allowedAttr, levelAttr, limitAttr, serverAttr, portAttr, modeAttr, hostAttr;
+    programsAttr.AddString(form::kAttrKind, form::kKindTable);
+    programsAttr.AddString(form::kAttrLabel, "Programs");
+    programsAttr.AddInt32(form::kAttrOrder, 1);
+    nameAttr.AddString(form::kAttrLabel, "Program");
+    nameAttr.AddBool(form::kAttrReadOnly, true);
+    nameAttr.AddInt32(form::kAttrOrder, 0);
+    programAttr.AddBool(form::kAttrHidden, true);
+    allowedAttr.AddString(form::kAttrLabel, "Allowed");
+    allowedAttr.AddInt32(form::kAttrOrder, 1);
+    levelAttr.AddString(form::kAttrLabel, "May know");
+    levelAttr.AddInt32(form::kAttrOrder, 2);
+    levelAttr.AddString(form::kAttrEnabledWhen, "allowed=true");
+    levelAttr.AddString(form::kAttrChoices, "city");
+    levelAttr.AddString(form::kAttrChoices, "region");
+    levelAttr.AddString(form::kAttrChoices, "country");
+    levelAttr.AddString(form::kAttrChoiceLabels, "The city");
+    levelAttr.AddString(form::kAttrChoiceLabels, "The region");
+    levelAttr.AddString(form::kAttrChoiceLabels, "The country");
+    limitAttr.AddDouble(form::kAttrMin, 1);
+    limitAttr.AddDouble(form::kAttrMax, 10);
+    limitAttr.AddInt32(form::kAttrOrder, 3);
+    serverAttr.AddString(form::kAttrKind, form::kKindProperties);
+    serverAttr.AddString(form::kAttrLabel, "Server");
+    serverAttr.AddInt32(form::kAttrOrder, 2);
+    portAttr.AddDouble(form::kAttrMin, 1);
+    portAttr.AddDouble(form::kAttrMax, 65535);
+    portAttr.AddString(form::kAttrLabel, "Port number");
+    modeAttr.AddString(form::kAttrChoices, "fast");
+    modeAttr.AddString(form::kAttrChoices, "careful");
+    hostAttr.AddString(form::kAttrEnabledWhen, "secure=true");
+    schema.AddInt32(form::kSchemaVersion, 1);
+    schema.AddMessage("programs", &programsAttr);
+    schema.AddMessage("programs.name", &nameAttr);
+    schema.AddMessage("programs.program", &programAttr);
+    schema.AddMessage("programs.allowed", &allowedAttr);
+    schema.AddMessage("programs.level", &levelAttr);
+    schema.AddMessage("programs.limit", &limitAttr);
+    schema.AddMessage("server", &serverAttr);
+    schema.AddMessage("server.port", &portAttr);
+    schema.AddMessage("server.mode", &modeAttr);
+    schema.AddMessage("server.host", &hostAttr);
+    *out = settings;
+    *outSchema = schema;
+}
+
+static void
+TestTables(TestWindow* w)
+{
+    BMessage settings, schema, server;
+    BuildTableData(&settings, &schema);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+    w->Reset();
+
+    // a message that is a table is no node of the tree
+    CHECK(w->view->CountNodes() == 0);
+    ShojiTableControl* table = Table(w, "programs");
+    CHECK(table != NULL && table->CountRows() == 3);
+    CHECK(table != NULL && table->CountColumns() == 4);                              // (the program is hidden)
+    CHECK(table != NULL && table->ColumnLabel(0) == "Program" && table->ColumnLabel(2) == "May know");
+    CHECK(table != NULL && table->ColumnLabel(3) == "Limit");                         // (from the name)
+    const ShojiTableControl::Cell* name = table->CellAt(1, 0);
+    CHECK(name != NULL && name->text == "Beta" && !name->editable && name->kind == ShojiTableControl::kText);
+    const ShojiTableControl::Cell* box = table->CellAt(0, 1);
+    CHECK(box != NULL && box->kind == ShojiTableControl::kBool && box->text == "true" && box->editable && box->path == "programs_00.allowed");
+    const ShojiTableControl::Cell* level = table->CellAt(1, 2);
+    CHECK(level != NULL && level->kind == ShojiTableControl::kChoice && level->choices.size() == 3 && level->choices[1].label == "The region");
+    CHECK(level != NULL && level->text == "country" && level->enabled && level->path == "programs_01.level");
+    CHECK(table->CellAt(2, 2) != NULL && !table->CellAt(2, 2)->enabled);              // (not allowed: no level)
+    const ShojiTableControl::Cell* limit = table->CellAt(2, 3);
+    CHECK(limit != NULL && limit->kind == ShojiTableControl::kText && limit->text == "7" && limit->editable);
+    int32 row = -1, column = -1;
+    CHECK(table->FindCell("programs_02.level", &row, &column) && row == 2 && column == 2);
+
+    // a click on a check box turns it over; the row waits for it
+    CHECK(table->Activate(0, 1));
+    w->Settle();
+    CHECK(w->changed == 1 && w->lastPath == "programs_00.allowed" && w->lastValue == "false");
+    CHECK(w->Text("programs_00.allowed") == "false");
+    table = Table(w, "programs");
+    CHECK(table->CellAt(0, 1)->text == "false" && !table->CellAt(0, 2)->enabled);       // (the rows are made again)
+    CHECK(!table->Activate(0, 2, "region"));                                           // (disabled)
+    CHECK(table->Activate(2, 1, "true"));
+    w->Settle();
+    table = Table(w, "programs");
+    CHECK(table->CellAt(2, 2)->enabled && w->Text("programs_02.allowed") == "true");
+
+    // a choice is set to one of its values only
+    w->Reset();
+    CHECK(table->Activate(1, 2, "region"));
+    w->Settle();
+    CHECK(w->Text("programs_01.level") == "region" && w->changed == 1);
+    table = Table(w, "programs");
+    CHECK(table->CellAt(1, 2)->text == "region");
+    CHECK(!table->Activate(1, 2, "planet"));
+    CHECK(!table->Activate(1, 0, "x"));                                                // (the name is only shown)
+    CHECK(w->Text("programs_01.name") == "Beta");
+
+    // a text: the field over the cell; Enter keeps it, a value out of the range is refused and the cell shows the old one
+    w->Reset();
+    CHECK(table->BeginEdit(2, 3) && table->IsEditing());
+    table->SetEditorText("9");
+    table->EndEdit(true);
+    w->Settle();
+    CHECK(!table->IsEditing() && w->Text("programs_02.limit") == "9" && w->changed == 1);
+    table = Table(w, "programs");
+    CHECK(table->CellAt(2, 3)->text == "9");
+    CHECK(table->BeginEdit(2, 3));
+    table->SetEditorText("99");
+    table->EndEdit(true);
+    w->Settle();
+    CHECK(w->refused == 1 && w->lastRefusedPath == "programs_02.limit" && w->Text("programs_02.limit") == "9");
+    table = Table(w, "programs");
+    CHECK(table->CellAt(2, 3)->text == "9");
+    // (Escape takes it back)
+    w->Reset();
+    CHECK(table->BeginEdit(0, 3));
+    table->SetEditorText("3");
+    table->EndEdit(false);
+    w->Settle();
+    CHECK(w->changed == 0 && w->Text("programs_00.limit") == "5");
+    // (a window that is closed keeps what is typed)
+    CHECK(table->BeginEdit(0, 3));
+    table->SetEditorText("4");
+    w->view->CommitPending();
+    w->Settle();
+    CHECK(w->Text("programs_00.limit") == "4" && !Table(w, "programs")->IsEditing());
+    CHECK(!table->BeginEdit(0, 0) && !table->BeginEdit(0, 1) && !table->BeginEdit(0, 2));  // (a name, a check box and a menu have no field)
+
+    // the mouse: a click on a cell is the control that edits it (the menu of a choice is shown by the system and not clicked here)
+    BListView* rows = dynamic_cast<BListView*>(table->FindView("table rows"));
+    CHECK(rows != NULL);
+    auto cellPoint = [&](int32 r, int32 c) {
+        const BRect item = rows->ItemFrame(r);
+        const std::vector<float> edges = table->ColumnEdges(rows->Bounds().Width() + 1);
+        return BPoint((edges[c] + edges[c + 1]) / 2, (item.top + item.bottom) / 2);
+    };
+    w->Reset();
+    rows->MouseDown(cellPoint(1, 1));                       // (Beta: the box is on)
+    w->Settle();
+    CHECK(w->Text("programs_01.allowed") == "false" && w->changed == 1 && table->SelectedRow() == 1);
+    rows->MouseDown(cellPoint(1, 1));
+    w->Settle();
+    CHECK(w->Text("programs_01.allowed") == "true" && w->changed == 2);
+    w->Reset();
+    rows->MouseDown(cellPoint(0, 2));                       // (the menu of Alpha is disabled: its box is off)
+    CHECK(!table->IsEditing() && w->changed == 0);
+    rows->MouseDown(cellPoint(0, 0));                       // (a name is only shown)
+    CHECK(!table->IsEditing());
+    rows->MouseDown(cellPoint(0, 3));                       // (a text: the field is over the cell)
+    CHECK(table->IsEditing());
+    table->SetEditorText("3");
+    rows->MouseDown(cellPoint(1, 1));                       // (a click on another cell keeps it and uses that cell)
+    w->Settle();
+    CHECK(!table->IsEditing() && w->Text("programs_00.limit") == "3" && w->Text("programs_01.allowed") == "false" && w->changed == 2);
+    rows->MouseDown(cellPoint(1, 1));
+    w->Settle();
+    CHECK(w->Text("programs_01.allowed") == "true");
+
+    // the table of a form that cannot be edited shows the values
+    w->view->SetEditable(false);
+    w->Settle();
+    table = Table(w, "programs");
+    CHECK(table != NULL && !table->IsEditable() && !table->Activate(1, 1));
+    w->view->SetEditable(true);
+    w->Settle();
+
+    // the fields of a message as rows: the name and the value, the value in the control of its kind
+    table = Table(w, "server");
+    CHECK(table != NULL && table->CountRows() == 4 && table->CountColumns() == 2);
+    CHECK(table != NULL && table->ColumnLabel(0) == "Name" && table->ColumnLabel(1) == "Value");
+    // (the order of the schema: host, port... have none; they keep the order of the message)
+    int32 portRow = -1, secureRow = -1, hostRow = -1, modeRow = -1;
+    for (int32 i = 0; i < table->CountRows(); i++) {
+        const std::string label = table->CellAt(i, 0)->text;
+        if (label == "Port number") portRow = i;
+        else if (label == "Secure") secureRow = i;
+        else if (label == "Host") hostRow = i;
+        else if (label == "Mode") modeRow = i;
+    }
+    CHECK(portRow >= 0 && secureRow >= 0 && hostRow >= 0 && modeRow >= 0);
+    CHECK(table->CellAt(portRow, 1)->kind == ShojiTableControl::kText && table->CellAt(portRow, 1)->path == "server.port" && table->CellAt(portRow, 1)->text == "80");
+    CHECK(table->CellAt(secureRow, 1)->kind == ShojiTableControl::kBool && table->CellAt(modeRow, 1)->kind == ShojiTableControl::kChoice);
+    CHECK(!table->CellAt(portRow, 0)->editable);
+    CHECK(table->CellAt(hostRow, 1)->enabled);                                          // (secure)
+    w->Reset();
+    CHECK(table->Activate(secureRow, 1, "false"));
+    w->Settle();
+    table = Table(w, "server");
+    CHECK(w->Text("server.secure") == "false" && !table->CellAt(hostRow, 1)->enabled);   // (the host waits for it)
+    CHECK(table->BeginEdit(portRow, 1));
+    table->SetEditorText("8080");
+    table->EndEdit(true);
+    w->Settle();
+    CHECK(w->Text("server.port") == "8080");
+    int32 port = 0;
+    CHECK(w->view->Settings().FindMessage("server", &server) == B_OK && server.FindInt32("port", &port) == B_OK && port == 8080);   // (still an int32)
+
+    // the plain fields beside the tables, and a name with a dot (the control is named with the escaped path)
+    CHECK(TextField(w, "lookup") != NULL && strcmp(TextField(w, "lookup")->Text(), "ask") == 0);
+    CHECK(TextField(w, "a\\.b") != NULL && strcmp(TextField(w, "a\\.b")->Text(), "dotted") == 0);
+
+    // revert: the rows are those of the start
+    w->view->Revert();
+    w->Settle();
+    table = Table(w, "programs");
+    CHECK(table->CellAt(0, 1)->text == "true" && table->CellAt(2, 1)->text == "false" && table->CellAt(2, 3)->text == "7");
+}
+
+
 int main(int argc, char** argv)
 {
     BApplication app("application/x-vnd.sen-labs.shoji-message-view-test");
@@ -687,6 +928,18 @@ int main(int argc, char** argv)
     window->view->SetData(original, &schema, &defaults);
     window->Settle();
 
+    if (argc > 2 && strcmp(argv[1], "screenshot") == 0 && strcmp(argv[2], "tables") == 0) {
+        BMessage tableSettings, tableSchema;
+        BuildTableData(&tableSettings, &tableSchema);
+        window->view->SetData(tableSettings, &tableSchema, NULL);
+        window->Settle();
+        window->Unlock();
+        snooze(40 * 1000000LL);
+        window->Lock();
+        window->Quit();
+        return 0;
+    }
+
     if (argc > 1 && strcmp(argv[1], "screenshot") == 0) {
         if (argc > 2)
             window->view->SelectNode(argv[2]);
@@ -706,6 +959,7 @@ int main(int argc, char** argv)
     TestRevertAndDefaults(window, original, defaults);
     TestReadOnly(window);
     TestEnabledWhen(window);
+    TestTables(window);
     window->Quit();
     TestNoTree();
 
