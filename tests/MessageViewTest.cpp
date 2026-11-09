@@ -25,6 +25,7 @@
 #include <MenuField.h>
 #include <MenuItem.h>
 #include <SeparatorItem.h>
+#include <StringView.h>
 #include <RadioButton.h>
 #include <Slider.h>
 #include <Spinner.h>
@@ -162,7 +163,8 @@ public:
         BWindow(BRect(100, 100, 600, 500), "message view test", B_TITLED_WINDOW, B_AUTO_UPDATE_SIZE_LIMITS),
         changed(0),
         refused(0),
-        whole(0)
+        whole(0),
+        actions(0)
     {
         view = new ShojiMessageView();
         view->SetTarget(BMessenger(this));
@@ -186,6 +188,10 @@ public:
                     lastSettings = settings;
                 break;
             }
+            case form::kAction:
+                actions++;
+                lastAction = message->GetString(form::kFieldPath, "");
+                break;
             case form::kRefused:
                 refused++;
                 lastRefusedPath = message->GetString(form::kFieldPath, "");
@@ -226,7 +232,8 @@ public:
 
     void Reset()
     {
-        changed = refused = whole = 0;
+        changed = refused = whole = actions = 0;
+        lastAction.clear();
         lastPath.clear();
         lastValue.clear();
     }
@@ -235,6 +242,8 @@ public:
     int32               changed;
     int32               refused;
     int32               whole;
+    int32               actions;
+    std::string         lastAction;
     std::string         lastPath;
     std::string         lastValue;
     std::string         lastRefusedPath;
@@ -736,6 +745,56 @@ BuildTableData(BMessage* out, BMessage* outSchema)
     *outSchema = schema;
 }
 
+// a button (`kind = button`) tells the target that it was pressed and changes nothing; a text field that is `readonly` only shows; `shows` puts such a text beside the button
+static void
+TestButton(TestWindow* w)
+{
+    BMessage settings, schema, field;
+    settings.AddBool("go", false);
+    settings.AddString("note", "Vienna, AT");
+    settings.AddString("state", "idle");
+    settings.AddInt32("count", 5);
+    field.AddString(form::kAttrLabel, "Go now");
+    field.AddString(form::kAttrKind, form::kKindButton);
+    field.AddString(form::kAttrShows, "note");
+    field.AddInt32(form::kAttrOrder, 0);
+    schema.AddMessage("go", &field);
+    BMessage note;
+    note.AddBool(form::kAttrReadOnly, true);
+    schema.AddMessage("note", &note);
+    BMessage state;
+    state.AddString(form::kAttrLabel, "State");
+    state.AddBool(form::kAttrReadOnly, true);
+    state.AddInt32(form::kAttrOrder, 1);
+    schema.AddMessage("state", &state);
+    BMessage count;
+    count.AddString(form::kAttrLabel, "Count");
+    count.AddDouble(form::kAttrMin, 1);
+    count.AddDouble(form::kAttrMax, 100);
+    count.AddInt32(form::kAttrOrder, 2);
+    schema.AddMessage("count", &count);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+    w->Reset();
+
+    BButton* button = dynamic_cast<BButton*>(w->view->ControlFor("go"));
+    CHECK(button != NULL && strcmp(button->Label(), "Go now") == 0);
+    BStringView* shown = dynamic_cast<BStringView*>(w->view->ControlFor("note"));
+    CHECK(shown != NULL && strcmp(shown->Text(), "Vienna, AT") == 0);                  // (beside the button, in the same line)
+    CHECK(shown != NULL && shown->Parent() == button->Parent());
+    BStringView* line = dynamic_cast<BStringView*>(w->view->ControlFor("state"));
+    CHECK(line != NULL && strcmp(line->Text(), "idle") == 0);                           // (a line of its own, no text field)
+    CHECK(dynamic_cast<BTextControl*>(w->view->ControlFor("state")) == NULL);
+    BSpinner* spinner = dynamic_cast<BSpinner*>(w->view->ControlFor("count"));
+    CHECK(spinner != NULL && spinner->ButtonStyle() == SPINNER_BUTTON_VERTICAL_ARROWS && spinner->Value() == 5);
+
+    button->Invoke();
+    w->Settle();
+    CHECK(w->actions == 1 && w->lastAction == "go" && w->changed == 0);                 // (nothing changed in the working copy)
+    CHECK(w->Text("go") == "false");
+}
+
+
 static void
 TestTables(TestWindow* w)
 {
@@ -764,6 +823,26 @@ TestTables(TestWindow* w)
     CHECK(limit != NULL && limit->kind == ShojiTableControl::kText && limit->text == "7" && limit->editable);
     int32 row = -1, column = -1;
     CHECK(table->FindCell("programs_02.level", &row, &column) && row == 2 && column == 2);
+
+    // the columns can be given a width with the dividers of the header: the column before the divider changes, a width has a smallest, the others keep theirs
+    {
+        const float listWidth = 460;
+        const std::vector<float> before = table->ColumnEdges(listWidth);
+        CHECK(table->DividerAt(before[1], listWidth) == 0 && table->DividerAt(before[1] + 2, listWidth) == 0 && table->DividerAt(before[1] + 10, listWidth) == -1);
+        CHECK(table->UserWidths().size() == 4 && table->UserWidths()[0] == 0);
+        const float first = before[1] - before[0];
+        CHECK(table->ResizeColumn(0, first + 12));
+        CHECK(table->UserWidths()[0] == first + 12);
+        CHECK(!table->ResizeColumn(9, 100));
+        CHECK(table->ResizeColumn(0, 1) && table->UserWidths()[0] >= 16 && table->UserWidths()[0] < first);           // (a little at least)
+        const std::vector<float> after = table->ColumnEdges(listWidth);
+        CHECK(after[1] - after[0] == table->UserWidths()[0] && after[2] - after[1] == before[2] - before[1]);          // (the next column is as it was)
+        std::vector<float> kept = table->UserWidths();
+        table->SetUserWidths(std::vector<float>(4, 0));
+        CHECK(table->ColumnEdges(listWidth) == before);
+        table->SetUserWidths(kept);
+        table->SetUserWidths(std::vector<float>(4, 0));
+    }
 
     // a click on a check box turns it over; the row waits for it
     CHECK(table->Activate(0, 1));
@@ -960,6 +1039,7 @@ int main(int argc, char** argv)
     TestReadOnly(window);
     TestEnabledWhen(window);
     TestTables(window);
+    TestButton(window);
     window->Quit();
     TestNoTree();
 

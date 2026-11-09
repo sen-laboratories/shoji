@@ -5,6 +5,7 @@
 #include "ShojiTableControl.h"
 
 #include <ControlLook.h>
+#include <Cursor.h>
 #include <Handler.h>
 #include <ListItem.h>
 #include <ListView.h>
@@ -274,17 +275,31 @@ public:
     {
         const rgb_color base = ui_color(B_PANEL_BACKGROUND_COLOR);
         BRect rect = Bounds();
-        be_control_look->DrawButtonBackground(this, rect, updateRect, base, 0, BControlLook::B_ALL_BORDERS & ~BControlLook::B_RIGHT_BORDER);
 
         // (the cells begin where the list does: the scroll view has a border)
         const float origin = ConvertFromScreen(fTable->fList->ConvertToScreen(BPoint(0, 0))).x;
         const std::vector<float> edges = fTable->ColumnEdges(fTable->fList->Bounds().Width() + 1);
+        const size_t count = std::min(fTable->fColumns.size(), edges.size() - 1);
+
+        // a title for each column in a bar of its own, as the header of a column list view has them: a divider after each (the last reaches to the end of the bar)
+        for (size_t c = 0; c < count; c++) {
+            BRect cell = rect;
+            cell.left = c == 0 ? rect.left : origin + edges[c];
+            cell.right = c + 1 == count ? rect.right : origin + edges[c + 1] - 1;
+            uint32 borders = BControlLook::B_TOP_BORDER | BControlLook::B_BOTTOM_BORDER | BControlLook::B_RIGHT_BORDER;
+            if (c == 0)
+                borders |= BControlLook::B_LEFT_BORDER;
+            be_control_look->DrawButtonBackground(this, cell, updateRect, base, 0, borders);
+        }
+        if (count == 0)
+            be_control_look->DrawButtonBackground(this, rect, updateRect, base, 0, BControlLook::B_ALL_BORDERS);
+
         font_height height;
         GetFontHeight(&height);
         const float baseline = rect.top + (rect.Height() - (height.ascent + height.descent)) / 2 + height.ascent;
         SetHighColor(ui_color(B_PANEL_TEXT_COLOR));
         SetLowColor(base);
-        for (size_t c = 0; c < fTable->fColumns.size() && c + 1 < edges.size(); c++) {
+        for (size_t c = 0; c < count; c++) {
             BString label(fTable->fColumns[c].c_str());
             const float width = edges[c + 1] - edges[c];
             TruncateString(&label, B_TRUNCATE_END, width - kPadding);
@@ -296,8 +311,54 @@ public:
         }
     }
 
+    // a divider can be dragged: the column before it gets the width
+    virtual void MouseDown(BPoint where)
+    {
+        fDragging = _DividerAt(where);
+        if (fDragging < 0)
+            return;
+        fTable->_EndEdit(true, false);
+        const std::vector<float> edges = fTable->ColumnEdges(fTable->fList->Bounds().Width() + 1);
+        fStartX = where.x;
+        fStartWidth = edges[fDragging + 1] - edges[fDragging];
+        SetMouseEventMask(B_POINTER_EVENTS, B_NO_POINTER_HISTORY);
+    }
+
+    virtual void MouseMoved(BPoint where, uint32 transit, const BMessage* dragMessage)
+    {
+        if (fDragging >= 0) {
+            fTable->ResizeColumn(fDragging, fStartWidth + (where.x - fStartX));
+            return;
+        }
+        const bool over = transit != B_EXITED_VIEW && _DividerAt(where) >= 0;
+        if (over != fOverDivider) {
+            fOverDivider = over;
+            if (over) {
+                BCursor cursor(B_CURSOR_ID_RESIZE_EAST_WEST);
+                SetViewCursor(&cursor);
+            } else {
+                SetViewCursor(B_CURSOR_SYSTEM_DEFAULT);
+            }
+        }
+    }
+
+    virtual void MouseUp(BPoint)
+    {
+        fDragging = -1;
+    }
+
 private:
+    int32 _DividerAt(BPoint where) const
+    {
+        const float origin = ConvertFromScreen(fTable->fList->ConvertToScreen(BPoint(0, 0))).x;
+        return fTable->DividerAt(where.x - origin, fTable->fList->Bounds().Width() + 1);
+    }
+
     ShojiTableControl*  fTable;
+    int32               fDragging = -1;
+    float               fStartX = 0;
+    float               fStartWidth = 0;
+    bool                fOverDivider = false;
 };
 
 
@@ -678,24 +739,70 @@ BRect ShojiTableControl::_CellFrame(int32 row, int32 column) const
 }
 
 
+// A column has the width that the user gave it, else what it needs. What is more than the columns need goes to the column that is edited as text (else the first of only text, else the
+// last), what is less is taken from it, to half: so a column that is made wider takes it from that one. A column that has a width of the user does not take part.
+static float
+BaseWidth(const std::vector<float>& measured, const std::vector<float>& user, size_t c)
+{
+    if (c < user.size() && user[c] > 0)
+        return user[c];
+    return c < measured.size() ? measured[c] : 0;
+}
+
+
 std::vector<float> ShojiTableControl::ColumnEdges(float width) const
 {
-    // each column has what it needs; what is more goes to the column that is edited as text (else the first of only text, else the last), what is less is taken from it, to half
     std::vector<float> edges(fColumns.size() + 1, 0);
     float needed = 0;
-    for (float w : fWidths)
-        needed += w;
+    for (size_t c = 0; c < fColumns.size(); c++)
+        needed += BaseWidth(fWidths, fUserWidths, c);
     const float extra = width - needed;
+    const bool flexible = fFlexible >= 0 && (size_t)fFlexible < fUserWidths.size() ? fUserWidths[fFlexible] <= 0 : true;
     float x = 0;
     for (size_t c = 0; c < fColumns.size(); c++) {
-        float w = c < fWidths.size() ? fWidths[c] : 0;
-        if ((int32)c == fFlexible)
+        float w = BaseWidth(fWidths, fUserWidths, c);
+        if ((int32)c == fFlexible && flexible)
             w = std::max(w * 0.5f, w + extra);
         edges[c] = x;
         x += w;
     }
     edges[fColumns.size()] = x;
     return edges;
+}
+
+
+int32 ShojiTableControl::DividerAt(float x, float width) const
+{
+    const std::vector<float> edges = ColumnEdges(width);
+    // (between two columns; the end of the last one is the end of the bar)
+    for (size_t c = 0; c + 1 < fColumns.size(); c++) {
+        if (fabsf(x - edges[c + 1]) <= 3)
+            return (int32)c;
+    }
+    return -1;
+}
+
+
+bool ShojiTableControl::ResizeColumn(int32 column, float width)
+{
+    if (column < 0 || column >= (int32)fColumns.size())
+        return false;
+    if (fUserWidths.size() != fColumns.size())
+        fUserWidths.assign(fColumns.size(), 0);
+    const float available = fList->Bounds().Width() + 1;
+    const std::vector<float> edges = ColumnEdges(available);
+    // (at least a little, and not more than leaves the columns after it what they need at least: the flexible one half)
+    const float smallest = kPadding * 2 + be_plain_font->StringWidth("M") * 2;
+    float after = 0;
+    for (size_t c = column + 1; c < fColumns.size(); c++) {
+        const float base = BaseWidth(fWidths, fUserWidths, c);
+        after += (int32)c == fFlexible && fUserWidths[c] <= 0 ? base * 0.5f : base;
+    }
+    const float largest = std::max(smallest, available - edges[column] - after);
+    fUserWidths[column] = floorf(std::max(smallest, std::min(width, largest)));
+    fHeader->Invalidate();
+    fList->Invalidate();
+    return true;
 }
 
 
@@ -723,6 +830,8 @@ void ShojiTableControl::_Measure()
     be_plain_font->GetHeight(&height);
 
     fWidths.assign(fColumns.size(), 0);
+    if (fUserWidths.size() != fColumns.size())
+        fUserWidths.assign(fColumns.size(), 0);
     fCentered.assign(fColumns.size(), false);
     fFlexible = -1;
     int32 firstAllText = -1;

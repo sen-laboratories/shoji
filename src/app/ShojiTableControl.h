@@ -100,6 +100,14 @@ public:
     /** a column of check boxes only has them (and its title) in the middle, any other column has its cells at the left */
     bool                    IsCentered(int32 column) const;
 
+    /** The width of a column that the user made with the mouse on the divider in the header (0: as the table lays it out); the form keeps them when it makes the table again. */
+    const std::vector<float>& UserWidths() const { return fUserWidths; }
+    void                    SetUserWidths(const std::vector<float>& widths) { fUserWidths = widths; }
+    /** sets the width of a column (as the divider of the header does, within what fits); false if the column is not there */
+    bool                    ResizeColumn(int32 column, float width);
+    /** the divider (between a column and the next) that is at `x` in the coordinates of the list, within a few pixels; -1 if there is none */
+    int32                   DividerAt(float x, float width) const;
+
     virtual void            MessageReceived(BMessage* message);
 
 private:
@@ -121,6 +129,7 @@ private:
     std::vector<std::string> fColumns;
     std::vector<Row>        fRows;
     std::vector<float>      fWidths;
+    std::vector<float>      fUserWidths;    ///< what the user dragged the columns to (0: not)
     std::vector<bool>       fCentered;
     int32                   fFlexible;
     int32                   fColumn;

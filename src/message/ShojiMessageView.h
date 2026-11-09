@@ -135,6 +135,7 @@ private:
     std::string             fNode;                      ///< the path of the node that is shown
     std::vector<std::string> fTextPaths;                ///< the text fields of the pane that is shown
     std::vector<Table>      fTables;                    ///< the tables of the pane that is shown
+    std::map<std::string, std::vector<float> > fTableWidths;    ///< the widths that the user gave the columns of a table, by its path: kept when the pane is made again
 
     BSplitView*             fSplit;
     BScrollView*            fTreeScroll;

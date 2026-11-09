@@ -6,10 +6,12 @@
 #include "ShojiMessageView.h"
 
 #include <Alignment.h>
+#include <Button.h>
 #include <CheckBox.h>
 #include <GridLayout.h>
 #include <DecimalSpinner.h>
 #include <GridView.h>
+#include <LayoutItem.h>
 #include <ListItem.h>
 #include <Menu.h>
 #include <MenuField.h>
@@ -29,6 +31,7 @@
 
 #include <algorithm>
 #include <math.h>
+#include <set>
 #include <stdio.h>
 #include <string.h>
 
@@ -54,7 +57,8 @@ enum {
     kMsgNumber  = 'MVnu',       // a spinner or a slider: path
     kMsgDate    = 'MVda',       // a date: path
     kMsgSelect  = 'MVse',       // a node of the tree was selected
-    kMsgTable   = 'MVtb'        // a cell of a table was changed: path, value
+    kMsgTable   = 'MVtb',       // a cell of a table was changed: path, value
+    kMsgAction  = 'MVac'        // a button (kind `button`) was pressed: path
 };
 
 // the values of a list are written in one string for the list control, separated by this (a value that contains it is quoted)
@@ -505,6 +509,18 @@ void ShojiMessageView::MessageReceived(BMessage* message)
                 _ApplyText(path, control->Text());
             break;
         }
+        case kMsgAction:
+        {
+            // a button is no value: the target is told that it was pressed, and nothing changes in the working copy
+            const char* path;
+            if (message->FindString("path", &path) == B_OK && fTarget.IsValid()) {
+                BMessage action(form::kAction);
+                action.AddString(form::kFieldPath, path);
+                action.AddInt32(form::kFieldProtocol, form::kProtocol);
+                fTarget.SendMessage(&action);
+            }
+            break;
+        }
         case kMsgBool:
         {
             const char* path;
@@ -744,6 +760,11 @@ void ShojiMessageView::_ShowNode(const std::string& path)
     BGridView* pane = new BGridView("sen:node");
     pane->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
     fTextPaths.clear();
+    // (the widths that the user gave the columns of the tables stay, also when the form is made again)
+    for (const Table& shownTable : fTables) {
+        if (ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(shownTable.path.c_str())))
+            fTableWidths[shownTable.path] = control->UserWidths();
+    }
     fTables.clear();
     _FillPane(pane, path);
 
@@ -787,9 +808,19 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
         };
         std::vector<Shown> shown;
         const std::vector<Known>& known = fKnown[node];
+        // the text fields that a button shows beside itself (`shows`): they have no line of their own
+        std::set<std::string> besideButton;
         for (size_t i = 0; i < known.size(); i++) {
             const BMessage attributes = _SchemaOf(ChildPath(key, known[i].name));
-            if (attributes.GetBool(form::kAttrHidden, false))
+            const char* kindOfField = NULL;
+            const char* shows = NULL;
+            if (attributes.FindString(form::kAttrKind, &kindOfField) == B_OK && strcmp(kindOfField, form::kKindButton) == 0
+                    && attributes.FindString(form::kAttrShows, &shows) == B_OK)
+                besideButton.insert(shows);
+        }
+        for (size_t i = 0; i < known.size(); i++) {
+            const BMessage attributes = _SchemaOf(ChildPath(key, known[i].name));
+            if (attributes.GetBool(form::kAttrHidden, false) || besideButton.count(known[i].name) != 0)
                 continue;
             Known field = known[i];
             if (attributes.GetBool(form::kAttrList, false))
@@ -830,6 +861,19 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
         BStringView* note = new BStringView("sen:note", "There is nothing to set here.");
         note->SetHighUIColor(B_PANEL_TEXT_COLOR, B_DARKEN_1_TINT);
         layout->AddView(note, 0, row++, 2, 1);
+    }
+    // The form follows the window: the pane is as wide as the window lets it be. What limits it are the controls that are only as wide as they need to be (a button, a label, a menu bar): the layout
+    // takes the smallest maximum of a column. They keep their size and stay at the left of their column, and the controls that can use more width (the menus, the text fields and the
+    // tables, which have the alignment "full width") take the rest.
+    for (int32 i = 0; i < layout->CountItems(); i++) {
+        BLayoutItem* item = layout->BLayout::ItemAt(i);
+        const BSize limit = item->MaxSize();
+        if (limit.width >= B_SIZE_UNLIMITED / 2)
+            continue;
+        const BAlignment alignment = item->Alignment();
+        item->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+        if (alignment.horizontal != B_ALIGN_USE_FULL_WIDTH && alignment.horizontal != B_ALIGN_LEFT)
+            item->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, alignment.vertical));
     }
     layout->SetColumnWeight(1, 100.0f);
     // keep the rows together at the top
@@ -903,6 +947,7 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         BStringView* name = new BStringView("sen:label", label.c_str());
         name->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_TOP));
         layout->AddView(name, 0, *row);
+        list->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_TOP));
         layout->AddView(list, 1, *row);
         (*row)++;
         return;
@@ -915,6 +960,62 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         return;
     }
     const std::string path = ChildPath(node, segment);
+
+    const char* kindText = NULL;
+    attributes.FindString(form::kAttrKind, &kindText);
+    const std::string kind = kindText != NULL ? kindText : "";
+
+    // a button: pressing it asks the owner of the settings to do something (a field of the type bool that is never stored); it stands in the column of the controls
+    if (kind == form::kKindButton) {
+        BMessage* pressed = new BMessage(kMsgAction);
+        pressed->AddString("path", path.c_str());
+        BButton* button = new BButton(path.c_str(), label.c_str(), pressed);
+        button->SetEnabled(fEditable);
+        if (help != NULL)
+            button->SetToolTip(help);
+        // the text that the button shows (what came of it) stands right of it, in the same line
+        const char* shows = NULL;
+        std::string shownText;
+        if (attributes.FindString(form::kAttrShows, &shows) == B_OK && GetText(message, EscapeSegment(shows), &shownText) == B_OK) {
+            BGroupView* line = new BGroupView(B_HORIZONTAL, B_USE_DEFAULT_SPACING);
+            line->GroupLayout()->SetInsets(0, 0, 0, 0);
+            line->GroupLayout()->AddView(button);
+            BStringView* result = new BStringView(ChildPath(node, shows).c_str(), shownText.c_str());
+            result->SetTruncation(B_TRUNCATE_END);
+            result->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 8, B_SIZE_UNSET));
+            result->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+            result->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+            if (!shownText.empty())
+                result->SetToolTip(shownText.c_str());
+            line->GroupLayout()->AddView(result);
+            line->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+            layout->AddView(line, 1, *row);
+        } else {
+            button->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+            layout->AddView(button, 1, *row);
+        }
+        (*row)++;
+        return;
+    }
+
+    // a text that is only shown (the owner makes it: the place that was found, a state), selectable by being in a text field that cannot be edited
+    if (attributes.GetBool(form::kAttrReadOnly, false) && field.type != B_BOOL_TYPE) {
+        BStringView* name = new BStringView("sen:label", label.c_str());
+        name->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+        BStringView* shown = new BStringView(path.c_str(), text.c_str());
+        shown->SetTruncation(B_TRUNCATE_END);
+        shown->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 10, B_SIZE_UNSET));
+        shown->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+        shown->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+        if (help != NULL)
+            shown->SetToolTip(help);
+        else if (!text.empty())
+            shown->SetToolTip(text.c_str());
+        layout->AddView(name, 0, *row);
+        layout->AddView(shown, 1, *row);
+        (*row)++;
+        return;
+    }
 
     if (field.type == B_BOOL_TYPE) {
         BMessage* changed = new BMessage(kMsgBool);
@@ -946,9 +1047,6 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         return;
     }
 
-    const char* kindText = NULL;
-    attributes.FindString(form::kAttrKind, &kindText);
-    const std::string kind = kindText != NULL ? kindText : "";
     type_code choicesType = 0;
     int32 choiceCount = 0;
     const bool hasChoices = attributes.GetInfo(form::kAttrChoices, &choicesType, &choiceCount) == B_OK && choicesType == B_STRING_TYPE && choiceCount > 0;
@@ -997,13 +1095,15 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         // (a spinner for the integers that a BSpinner holds, which are 32 bit)
         if (!isInteger || (low >= -2147483648.0 && high <= 2147483647.0)) {
             BAbstractSpinner* spinner;
+            // (no label of its own: the label stands in the first column like the others, and the spinner in a line of its own that is as wide as the numbers need,
+            // at the left of the column, so that it does not grow with the window)
             if (isInteger) {
-                BSpinner* whole = new BSpinner(path.c_str(), label.c_str(), changed);
+                BSpinner* whole = new BSpinner(path.c_str(), "", changed);
                 whole->SetRange((int32)low, (int32)high);
                 whole->SetValue((int32)number);
                 spinner = whole;
             } else {
-                BDecimalSpinner* decimal = new BDecimalSpinner(path.c_str(), label.c_str(), changed);
+                BDecimalSpinner* decimal = new BDecimalSpinner(path.c_str(), "", changed);
                 decimal->SetRange(low, high);
                 decimal->SetStep(step);
                 decimal->SetPrecision((uint32)decimals);
@@ -1011,10 +1111,21 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
                 spinner = decimal;
             }
             spinner->SetEnabled(fEditable);
+            // (the arrows up and down of the system's spinner, not a plus and a minus)
+            spinner->SetButtonStyle(SPINNER_BUTTON_VERTICAL_ARROWS);
             if (help != NULL)
                 spinner->SetToolTip(help);
-            layout->AddItem(spinner->CreateLabelLayoutItem(), 0, *row);
-            layout->AddItem(spinner->CreateTextViewLayoutItem(), 1, *row);
+            const float digits = std::max<float>(6, std::max(detail::NumberText(low).size(), detail::NumberText(high).size()) + 2);
+            spinner->SetExplicitMaxSize(BSize(be_plain_font->StringWidth("0") * digits + 3 * be_plain_font->Size() + 16, B_SIZE_UNSET));
+            BGroupView* holder = new BGroupView(B_HORIZONTAL, 0);
+            holder->GroupLayout()->SetInsets(0, 0, 0, 0);
+            holder->GroupLayout()->AddView(spinner);
+            holder->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
+            holder->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+            BStringView* spinnerLabel = new BStringView("sen:label", label.c_str());
+            spinnerLabel->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+            layout->AddView(spinnerLabel, 0, *row);
+            layout->AddView(holder, 1, *row);
             (*row)++;
             return;
         }
@@ -1082,8 +1193,13 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         menuField->SetEnabled(fEditable);
         if (help != NULL)
             menuField->SetToolTip(help);
-        layout->AddItem(menuField->CreateLabelLayoutItem(), 0, *row);
-        layout->AddItem(menuField->CreateMenuBarLayoutItem(), 1, *row);
+        BLayoutItem* menuLabel = menuField->CreateLabelLayoutItem();
+        BLayoutItem* menuBar = menuField->CreateMenuBarLayoutItem();
+        // (the menu takes the width of its column: the window can be made wider, and the controls follow)
+        menuBar->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+        menuBar->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_UNSET));
+        layout->AddItem(menuLabel, 0, *row);
+        layout->AddItem(menuBar, 1, *row);
         (*row)++;
         return;
     }
@@ -1103,8 +1219,11 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     textControl->SetEnabled(fEditable);
     if (help != NULL)
         textControl->SetToolTip(help);
-    layout->AddItem(textControl->CreateLabelLayoutItem(), 0, *row);
-    layout->AddItem(textControl->CreateTextViewLayoutItem(), 1, *row);
+    BLayoutItem* textLabel = textControl->CreateLabelLayoutItem();
+    BLayoutItem* textItem = textControl->CreateTextViewLayoutItem();
+    textItem->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_UNSET));
+    layout->AddItem(textLabel, 0, *row);
+    layout->AddItem(textItem, 1, *row);
     (*row)++;
     fTextPaths.push_back(path);
 }
@@ -1128,6 +1247,9 @@ void ShojiMessageView::_AddTable(BGridView* pane, int32* row, const std::string&
     ShojiTableControl* table = new ShojiTableControl(entry.path.c_str());
     table->SetMessage(new BMessage(kMsgTable));
     table->SetEditable(fEditable);
+    std::map<std::string, std::vector<float> >::const_iterator widths = fTableWidths.find(entry.path);
+    if (widths != fTableWidths.end())
+        table->SetUserWidths(widths->second);
     if (help != NULL)
         table->SetToolTip(help);
     fTables.push_back(entry);
