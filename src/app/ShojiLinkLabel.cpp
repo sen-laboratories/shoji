@@ -88,9 +88,32 @@ LinkKindOf(const char* attribute)
 }
 
 
-status_t
-OpenLink(LinkKind kind, const char* text, const entry_ref& file)
+bool
+OpenLinkedPlace(const entry_ref& file, const char* text)
 {
+    BString value(text);
+    value.Trim();
+    entry_ref linked;
+    if (value.IsEmpty() || !FindLinkedPlace(file, value, &linked))
+        return false;
+    BMessage open(B_REFS_RECEIVED);
+    open.AddRef("refs", &linked);
+    return be_app_messenger.SendMessage(&open) == B_OK;
+}
+
+
+bool
+IsRelationAttribute(const char* attribute)
+{
+    return strncmp(attribute, sen::attr::kRelationPrefix, strlen(sen::attr::kRelationPrefix)) == 0;
+}
+
+
+status_t
+OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupStarted)
+{
+    if (lookupStarted != NULL)
+        *lookupStarted = false;
     BString value(text);
     value.Trim();
     if (value.IsEmpty())
@@ -128,12 +151,8 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file)
 
     if (kind == kPlaceLink) {
         // the place was looked up for this text before: it is opened (in a window of its own), not looked up again
-        entry_ref linked;
-        if (FindLinkedPlace(file, value, &linked)) {
-            BMessage open(B_REFS_RECEIVED);
-            open.AddRef("refs", &linked);
-            return be_app_messenger.SendMessage(&open);
-        }
+        if (OpenLinkedPlace(file, value))
+            return B_OK;
         // the enricher of places is asked for the place of that name (it chooses if there are several, as it does for any file), makes it a file of its own and relates this one to it
         entry_ref plugin;
         if (be_roster->FindApp(kPlaceEnricherSignature, &plugin) != B_OK) {
@@ -146,7 +165,11 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file)
         lookup.AddString("query", value.String());
         lookup.AddBool("wipe", false);
         status_t result = be_roster->Launch(&plugin, &lookup);
-        return result == B_ALREADY_RUNNING ? B_OK : result;
+        if (result == B_ALREADY_RUNNING)
+            result = B_OK;
+        if (result == B_OK && lookupStarted != NULL)
+            *lookupStarted = true;
+        return result;
     }
     return B_BAD_VALUE;
 }

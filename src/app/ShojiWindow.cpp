@@ -244,8 +244,12 @@ void ShojiWindow::MessageReceived(BMessage* message)
             // the label of a field was clicked (the homepage: the web browser; the location: the place enricher): what the field says now is followed
             const char* name = NULL;
             BTextControl* field = message->FindString("attribute", &name) == B_OK ? dynamic_cast<BTextControl*>(FindControl(name)) : NULL;
-            if (field != NULL)
-                shoji::OpenLink(shoji::LinkKindOf(name), field->Text(), fRef);
+            if (field != NULL) {
+                bool lookupStarted = false;
+                shoji::OpenLink(shoji::LinkKindOf(name), field->Text(), fRef, &lookupStarted);
+                // the place enricher works on its own: when the relation to the place appears in the file, the place is opened (the feedback that it was found and linked)
+                fPendingPlace = lookupStarted ? field->Text() : "";
+            }
             break;
         }
         case B_NODE_MONITOR:
@@ -253,8 +257,11 @@ void ShojiWindow::MessageReceived(BMessage* message)
             int32 opcode;
             const char* name;
             if (message->FindInt32("opcode", &opcode) == B_OK && opcode == B_ATTR_CHANGED
-                    && message->FindString("attr", &name) == B_OK)
+                    && message->FindString("attr", &name) == B_OK) {
+                if (!fPendingPlace.IsEmpty() && shoji::IsRelationAttribute(name) && shoji::OpenLinkedPlace(fRef, fPendingPlace.String()))
+                    fPendingPlace = "";
                 ExternalChange(name);
+            }
             break;
         }
         case kMsgExternalChoice:

@@ -21,8 +21,17 @@ enum LinkKind {
 /** The attributes that have a link label (a later version can read this from the ontology). */
 LinkKind LinkKindOf(const char* attribute);
 
-/** What a click on the label of @p attribute does for the text of its field; @p file is the file that the form shows. */
-status_t OpenLink(LinkKind kind, const char* text, const entry_ref& file);
+/**
+ * What a click on the label of @p attribute does for the text of its field; @p file is the file that the form shows. For a place that was looked up before, the place is opened; if it has to be
+ * looked up (the enricher of places works on its own), @p lookupStarted is set and the caller opens the place when the relation to it appears (OpenLinkedPlace).
+ */
+status_t OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupStarted = NULL);
+
+/** Opens the place that @p file was linked to for @p text in a window of its own; false if there is none (yet). */
+bool OpenLinkedPlace(const entry_ref& file, const char* text);
+
+/** Whether @p attribute holds relations (a change of it can mean that a place was linked). */
+bool IsRelationAttribute(const char* attribute);
 
 }   // namespace shoji
 

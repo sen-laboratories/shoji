@@ -6,6 +6,7 @@
 
 #include <Bitmap.h>
 #include <Mime.h>
+#include <String.h>
 #include <Window.h>
 
 #include <map>
@@ -79,4 +80,5 @@ class ShojiWindow : public BWindow
         BMenuBar*           fMenuBar;
         BGroupView*         fPanel;
         float               fPictureHeight;
+        BString             fPendingPlace;  // the text of a Location that the place enricher is looking up: its place is opened when it is linked
 };
