@@ -5,13 +5,22 @@
 #include "ShojiLinkLabel.h"
 
 #include <Alert.h>
+#include <Application.h>
 #include <Cursor.h>
 #include <Font.h>
 #include <LayoutUtils.h>
+#include <Messenger.h>
+#include <Node.h>
 #include <Roster.h>
 #include <TextControl.h>
 #include <Url.h>
 #include <Window.h>
+#include <fs_attr.h>
+
+#include <sen/Sen.h>
+#include <sen/SenAttributes.h>
+#include <sen/SenMessages.h>
+#include <sen/SenOntoSpatial.h>
 
 #include <string.h>
 
@@ -19,6 +28,52 @@ static const char* const kPlaceEnricherSignature = "application/x-vnd.sen-plugin
 
 
 namespace shoji {
+
+/**
+ * The place that the file was linked to for this text: the relation *Located near* with the text as its label (the place enricher made it when the link was followed first). Asked of the SEN
+ * server for the file that the target is. Returns false if there is none (the text was not followed yet, or changed since).
+ */
+static bool
+FindLinkedPlace(const entry_ref& file, const BString& text, entry_ref* place)
+{
+    BString type(sen::onto::spatial::mime::kLocatedNear);
+    type.RemoveFirst("relation/");
+    BString attribute(sen::attr::kRelationPrefix);
+    attribute << type;
+
+    BNode node(&file);
+    attr_info info;
+    if (node.InitCheck() != B_OK || node.GetAttrInfo(attribute.String(), &info) != B_OK || info.size <= 0)
+        return false;
+    char* buffer = new char[info.size];
+    BMessage relations;
+    const bool read = node.ReadAttr(attribute.String(), info.type, 0, buffer, info.size) == info.size && relations.Unflatten(buffer) == B_OK;
+    delete[] buffer;
+    if (!read)
+        return false;
+
+    // (the targets are the names of the fields, a message of properties each; several relations to the same target are several messages of the field)
+    char* targetId;
+    type_code fieldType;
+    int32 count;
+    for (int32 i = 0; relations.GetInfo(B_MESSAGE_TYPE, i, &targetId, &fieldType, &count) == B_OK; i++) {
+        for (int32 j = 0; j < count; j++) {
+            BMessage properties;
+            if (relations.FindMessage(targetId, j, &properties) != B_OK)
+                continue;
+            BString label(properties.GetString(sen::attr::kRelationLabel, ""));
+            label.Trim();
+            if (label.IsEmpty() || label.ICompare(text) != 0)
+                continue;
+            BMessage ask(sen::cmd::kQueryRefForId), reply;
+            ask.AddString(sen::attr::kId, targetId);
+            if (BMessenger(sen::kServerSignature).SendMessage(&ask, &reply, 5000000, 5000000) == B_OK && reply.FindRef("ref", place) == B_OK && BEntry(place).Exists())
+                return true;
+        }
+    }
+    return false;
+}
+
 
 LinkKind
 LinkKindOf(const char* attribute)
@@ -72,6 +127,13 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file)
     }
 
     if (kind == kPlaceLink) {
+        // the place was looked up for this text before: it is opened (in a window of its own), not looked up again
+        entry_ref linked;
+        if (FindLinkedPlace(file, value, &linked)) {
+            BMessage open(B_REFS_RECEIVED);
+            open.AddRef("refs", &linked);
+            return be_app_messenger.SendMessage(&open);
+        }
         // the enricher of places is asked for the place of that name (it chooses if there are several, as it does for any file), makes it a file of its own and relates this one to it
         entry_ref plugin;
         if (be_roster->FindApp(kPlaceEnricherSignature, &plugin) != B_OK) {
