@@ -52,7 +52,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BRect(BPoint(320.0, 128.0), BSize(580.0, 576.0)),
     "Shoji Entity Viewer",
     B_DOCUMENT_WINDOW,
-    B_WILL_ACCEPT_FIRST_CLICK | B_AUTO_UPDATE_SIZE_LIMITS),    // (the window is never smaller than its form needs)
+    B_AUTO_UPDATE_SIZE_LIMITS),    // (the window is never smaller than its form needs; no B_WILL_ACCEPT_FIRST_CLICK: a click in the window would pass through without activating it)
     fRef(*ref),
     fWritable(false),
     fEntityView(NULL),
