@@ -17,6 +17,7 @@
 namespace sen { namespace mapstyles { struct Style; } }
 
 class BMessage;
+class BMessageRunner;
 
 /**
  * The map of a place: the tiles of OpenStreetMap around its position, with a pin where the place is. The zoom is the largest at which the bounding box of the place (if it has
@@ -74,6 +75,8 @@ class PlaceMapView : public BView {
         bool                _LoadStyle();
         void                _ClearTiles();
         void                _DrawPin(BPoint tip);
+        void                _DrawLoading(BRect bounds, bool active);
+        void                _StopAnimation();
 
         bool                fHasPosition;
         double              fLatitude, fLongitude;
@@ -84,4 +87,7 @@ class PlaceMapView : public BView {
         std::set<unsigned long long>            fPrimaryTiles;     ///< the tiles in the memory that are of the chosen style (not of the standard map that stands in)
         const sen::mapstyles::Style*           fStyle;
         std::shared_ptr<Fetcher>                fFetcher;
+        BMessageRunner*                         fAnimation;        ///< turns the spinner while tiles are on their way
+        int                                     fSpin;
+        bool                                    fLoading;          ///< the last drawing had tiles missing that are on their way
 };
