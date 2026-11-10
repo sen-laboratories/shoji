@@ -8,8 +8,8 @@ PersonView::PersonView() : FormView("Person View") {
     AddField("foaf:name", "Full name");
     AddField("foaf:givenName", "Given name");
     AddField("foaf:familyName", "Family name");
-    // the handle that Robin searches the services for (with or without the @; a Fediverse handle is user@server, one of Bluesky a domain)
-    AddField("foaf:nick", "Handle");
+    // the nickname is the handle that Robin searches the services for (with or without the @; a Fediverse handle is user@server, one of Bluesky a domain): called Nickname as in People and the ontology
+    AddField("foaf:nick", "Nickname");
     AddField("schema:jobTitle", "Job title");
     AddField("schema:worksFor", "Company");
     AddField("schema:homeLocation", "Location");
