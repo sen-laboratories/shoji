@@ -682,8 +682,8 @@ void PlaceMapView::Draw(BRect updateRect)
         active = fFetcher->workers > 0 || !fFetcher->queue.empty();
     }
     fLoading = missing > 0 && active;
-    // (the card only while the map is empty: with some tiles shown it would cover the pin)
-    if (missing > 0 && drawn == 0)
+    // (the card whenever tiles are on their way, also when some are shown already; when nothing is on its way and the map is empty, it says so)
+    if (missing > 0 && (active || drawn == 0))
         _DrawLoading(bounds, active);
     if (fLoading && fAnimation == NULL && Window() != NULL) {
         fAnimation = new BMessageRunner(BMessenger(this), new BMessage(kSpin), kSpinInterval);
