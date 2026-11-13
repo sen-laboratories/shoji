@@ -137,6 +137,10 @@ private:
     std::string             fNode;                      ///< the path of the node that is shown
     std::vector<std::string> fTextPaths;                ///< the text fields of the pane that is shown
     std::vector<Table>      fTables;                    ///< the tables of the pane that is shown
+    struct Waiting {                                    ///< a button that was pressed and has no answer yet: what its line said before (restored by kActionDone)
+        std::string button, line, text, tip;
+    };
+    std::vector<Waiting>    fWaitingButtons;
     std::map<std::string, std::vector<float> > fTableWidths;    ///< the widths that the user gave the columns of a table, by its path: kept when the pane is made again
 
     BSplitView*             fSplit;

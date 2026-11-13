@@ -34,6 +34,7 @@
 #include <StringView.h>
 #include <TextControl.h>
 #include <TextView.h>
+#include <ToolTip.h>
 #include <Window.h>
 
 #include <algorithm>
@@ -574,6 +575,13 @@ void ShojiMessageView::MessageReceived(BMessage* message)
                 const char* shows;
                 BStringView* line;
                 if (message->FindString("shows", &shows) == B_OK && (line = dynamic_cast<BStringView*>(ControlFor(shows))) != NULL) {
+                    Waiting waiting;
+                    waiting.button = path;
+                    waiting.line = shows;
+                    waiting.text = line->Text();
+                    if (BTextToolTip* tip = dynamic_cast<BTextToolTip*>(line->ToolTip()))
+                        waiting.tip = tip->Text();
+                    fWaitingButtons.push_back(waiting);
                     line->SetText("Waiting for reply...");
                     line->SetToolTip((const char*)NULL);
                     // (the button waits, too: the form is made again from the answer, which enables it)
@@ -628,6 +636,33 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             reply.AddInt32(form::kFieldResult, B_OK);
             if (message->IsSourceWaiting())
                 message->SendReply(&reply);
+            break;
+        }
+        case form::kActionDone:
+        {
+            // the answer to a button changed no data: its button works again and its line says what it said before (the controls are those of the form that was there when it was pressed)
+            const char* only = NULL;
+            message->FindString(form::kFieldPath, &only);
+            std::vector<Waiting> remaining;
+            for (const Waiting& waiting : fWaitingButtons) {
+                if (only != NULL && waiting.button != only) {
+                    remaining.push_back(waiting);
+                    continue;
+                }
+                if (BControl* button = dynamic_cast<BControl*>(ControlFor(waiting.button.c_str())))
+                    button->SetEnabled(fEditable);
+                if (BStringView* line = dynamic_cast<BStringView*>(ControlFor(waiting.line.c_str()))) {
+                    line->SetText(waiting.text.c_str());
+                    line->SetToolTip(waiting.tip.empty() ? (const char*)NULL : waiting.tip.c_str());
+                    if (BGroupView* group = dynamic_cast<BGroupView*>(line->Parent())) {
+                        for (int32 i = 0; i < group->CountChildren(); i++) {
+                            if (dynamic_cast<IconView*>(group->ChildAt(i)) != NULL && group->ChildAt(i)->IsHidden())
+                                group->ChildAt(i)->Show();
+                        }
+                    }
+                }
+            }
+            fWaitingButtons = remaining;
             break;
         }
         case form::kRevert:
@@ -838,6 +873,7 @@ void ShojiMessageView::_ShowNode(const std::string& path)
             fTableWidths[shownTable.path] = control->UserWidths();
     }
     fTables.clear();
+    fWaitingButtons.clear();
     _FillPane(pane, path);
 
     BView* old = fPane;
