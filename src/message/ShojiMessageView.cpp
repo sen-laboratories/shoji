@@ -6,19 +6,26 @@
 #include "ShojiMessageView.h"
 
 #include <Alignment.h>
+#include <Bitmap.h>
 #include <Button.h>
+#include <ControlLook.h>
 #include <CheckBox.h>
 #include <GridLayout.h>
 #include <DecimalSpinner.h>
+#include <File.h>
+#include <FindDirectory.h>
 #include <GridView.h>
+#include <IconUtils.h>
 #include <LayoutItem.h>
 #include <ListItem.h>
 #include <Menu.h>
 #include <MenuField.h>
 #include <MenuItem.h>
 #include <OutlineListView.h>
+#include <Path.h>
 #include <PopUpMenu.h>
 #include <RadioButton.h>
+#include <Resources.h>
 #include <ScrollView.h>
 #include <Slider.h>
 #include <SpaceLayoutItem.h>
@@ -47,6 +54,51 @@ using namespace sen::settings;
 namespace form = sen::settings::form;
 
 namespace {
+
+/** The icon of an alert of the system (the ones that BAlert shows: `dialog-information`, `dialog-warning`, `dialog-error`, vector icons in libbe), as high as @p size; NULL if there is none. */
+BBitmap* AlertIcon(const std::string& state, float size)
+{
+    const char* name = state == form::kStateInfo ? "dialog-information" : state == form::kStateWarning ? "dialog-warning" : state == form::kStateError ? "dialog-error" : NULL;
+    BPath path;
+    if (name == NULL || find_directory(B_SYSTEM_LIB_DIRECTORY, &path) != B_OK || path.Append("libbe.so") != B_OK)
+        return NULL;
+    BFile file(path.Path(), B_READ_ONLY);
+    BResources resources(&file);
+    size_t length = 0;
+    const void* data = resources.LoadResource(B_VECTOR_ICON_TYPE, name, &length);
+    if (data == NULL)
+        return NULL;
+    BBitmap* bitmap = new BBitmap(BRect(0, 0, size - 1, size - 1), B_RGBA32);
+    if (bitmap->InitCheck() != B_OK || BIconUtils::GetVectorIcon((const uint8*)data, length, bitmap) != B_OK) {
+        delete bitmap;
+        return NULL;
+    }
+    return bitmap;
+}
+
+
+/** A view that draws a bitmap (the icon of a status line). */
+class IconView : public BView {
+public:
+    IconView(BBitmap* icon)
+        :
+        BView("sen:status icon", B_WILL_DRAW),
+        fIcon(icon)
+    {
+        SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+        SetDrawingMode(B_OP_ALPHA);
+        SetBlendingMode(B_PIXEL_ALPHA, B_ALPHA_OVERLAY);
+        const BSize size = fIcon->Bounds().Size();
+        SetExplicitMinSize(BSize(size.width + 1, size.height + 1));
+        SetExplicitMaxSize(BSize(size.width + 1, size.height + 1));
+        SetExplicitPreferredSize(BSize(size.width + 1, size.height + 1));
+    }
+    ~IconView() { delete fIcon; }
+    virtual void Draw(BRect) { DrawBitmap(fIcon, BPoint(0, 0)); }
+
+private:
+    BBitmap*    fIcon;
+};
 
 // what the controls tell the view (it is their target)
 enum {
@@ -904,6 +956,53 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
 }
 
 
+/**
+ * The line of a text that only shows: the text, and if the schema of the field names a state field (`state_field`) the icon of that state before it, and a detail field (`detail_field`) the
+ * tool tip. Plain text view if the schema asks for nothing of it. @p name is the name of the text view (its path).
+ */
+static BView* MakeStatusLine(const std::string& name, const std::string& text, const BMessage& attributes, const BMessage& message, const char* help)
+{
+    auto fieldText = [&](const char* attribute) {
+        const char* field = NULL;
+        std::string value;
+        if (attributes.FindString(attribute, &field) == B_OK && field != NULL && GetText(message, EscapeSegment(field), &value) == B_OK)
+            return value;
+        return std::string();
+    };
+    const std::string state = fieldText(form::kAttrStateField);
+    std::string detail = fieldText(form::kAttrDetailField);
+
+    BStringView* shown = new BStringView(name.c_str(), text.c_str());
+    shown->SetTruncation(B_TRUNCATE_END);
+    shown->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 8, B_SIZE_UNSET));
+    shown->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+    shown->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+    if (detail.empty() && help != NULL)
+        detail = help;
+    if (detail.empty())
+        detail = text;
+    if (!detail.empty())
+        shown->SetToolTip(detail.c_str());
+
+    font_height height;
+    be_plain_font->GetHeight(&height);
+    BBitmap* icon = state.empty() ? NULL : AlertIcon(state, ceilf(height.ascent + height.descent + height.leading) + 4);
+    if (icon == NULL)
+        return shown;
+
+    BGroupView* line = new BGroupView(B_HORIZONTAL, be_control_look->DefaultItemSpacing() / 2);
+    line->GroupLayout()->SetInsets(0, 0, 0, 0);
+    IconView* iconView = new IconView(icon);
+    if (!detail.empty())
+        iconView->SetToolTip(detail.c_str());
+    line->GroupLayout()->AddView(iconView);
+    line->GroupLayout()->AddView(shown);
+    line->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+    line->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+    return line;
+}
+
+
 void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string& node, const std::string& key, const Known& field,
     const BMessage& message)
 {
@@ -1007,13 +1106,7 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
             right->GroupLayout()->AddView(button);
             right->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
             layout->AddView(right, 0, *row);
-            BStringView* result = new BStringView(ChildPath(node, shows).c_str(), shownText.c_str());
-            result->SetTruncation(B_TRUNCATE_END);
-            result->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 8, B_SIZE_UNSET));
-            result->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
-            result->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
-            if (!shownText.empty())
-                result->SetToolTip(shownText.c_str());
+            BView* result = MakeStatusLine(ChildPath(node, shows), shownText, _SchemaOf(ChildPath(key, shows)), message, NULL);
             layout->AddView(result, 1, *row);
         } else {
             button->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
@@ -1027,15 +1120,7 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     if (attributes.GetBool(form::kAttrReadOnly, false) && field.type != B_BOOL_TYPE) {
         BStringView* name = new BStringView("sen:label", label.c_str());
         name->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
-        BStringView* shown = new BStringView(path.c_str(), text.c_str());
-        shown->SetTruncation(B_TRUNCATE_END);
-        shown->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 10, B_SIZE_UNSET));
-        shown->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
-        shown->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
-        if (help != NULL)
-            shown->SetToolTip(help);
-        else if (!text.empty())
-            shown->SetToolTip(text.c_str());
+        BView* shown = MakeStatusLine(path, text, attributes, message, help);
         layout->AddView(name, 0, *row);
         layout->AddView(shown, 1, *row);
         (*row)++;
