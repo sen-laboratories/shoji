@@ -21,6 +21,10 @@ class BMenuBar;
 
 class BGroupView;
 
+namespace sen {
+class StripeView;
+}
+
 class ShojiWindow : public BWindow
 {
     public:
@@ -38,6 +42,7 @@ class ShojiWindow : public BWindow
         status_t            GetMimeTypeForRef(const entry_ref* ref, char* mimeType);
 
         BBitmap*            LoadPicture(float height, BBitmap** full = NULL);
+        void                RefreshPicture();
         bool                IsFileWritable() const;
         status_t            LoadAttributes(const BMessage* mimeAttrInfo, const BMessage* superTypeAttrInfo);
         void                ConnectControls();
@@ -80,5 +85,6 @@ class ShojiWindow : public BWindow
         BMenuBar*           fMenuBar;
         BGroupView*         fPanel;
         float               fPictureHeight;
+        sen::StripeView*    fStripe;            // the picture on the left, which is replaced when the thumbnail of the file is written (the place enricher does that a moment after the window was opened)
         BString             fPendingPlace;  // the text of a Location that the place enricher is looking up: its place is opened when it is linked
 };
