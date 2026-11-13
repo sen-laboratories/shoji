@@ -1098,12 +1098,13 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
             ValueSlider* slider = new ValueSlider(path.c_str(), changed, low, step, (int32)positions, decimals);
             slider->SetNumber(number);
             slider->SetEnabled(fEditable);
-            slider->SetLimitLabels(detail::NumberText(low).c_str(), detail::NumberText(high).c_str());
-            // (the value above the thumb says "None" or "All" at the ends of the track, if the schema has texts for them)
+            // (the ends of the track and the value above the thumb at the ends say "None" or "All", if the schema has texts for them, else the numbers)
             const char* minLabel = NULL;
             const char* maxLabel = NULL;
             attributes.FindString(form::kAttrMinLabel, &minLabel);
             attributes.FindString(form::kAttrMaxLabel, &maxLabel);
+            slider->SetLimitLabels(minLabel != NULL && minLabel[0] != '\0' ? minLabel : detail::NumberText(low).c_str(),
+                maxLabel != NULL && maxLabel[0] != '\0' ? maxLabel : detail::NumberText(high).c_str());
             slider->SetEndTexts(minLabel, maxLabel);
             slider->SetHashMarks(B_HASH_MARKS_BOTTOM);
             slider->SetHashMarkCount((int32)std::min(positions, 10.0) + 1);
