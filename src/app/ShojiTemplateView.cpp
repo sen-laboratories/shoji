@@ -22,6 +22,7 @@
 #include <cstring>
 
 #include "ShojiTemplateView.h"
+#include "ShojiLinkLabel.h"
 #include "ShojiListControl.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceMapView.h"
 
@@ -187,6 +188,36 @@ static BView* UpgradeToList(BView* view, const ShojiAttribute& attr, std::map<BG
     return list;
 }
 
+// The label of a field that links somewhere (the homepage, the location) is a link: the label view of the first column is replaced, in its place, by one that is shown and
+// acts as a link while the field has a text (see ShojiLinkLabel). A template that has a label of another kind is left alone.
+static void UpgradeToLink(BView* view, const ShojiAttribute& attr, std::map<BGridLayout*, FormRows>& forms)
+{
+    if (shoji::LinkKindOf(attr.name.String()) == shoji::kNoLink)
+        return;
+    BView* parent = view->Parent();
+    BGridLayout* grid = parent != NULL ? dynamic_cast<BGridLayout*>(parent->GetLayout()) : NULL;
+    if (grid == NULL)
+        return;
+    if (forms.find(grid) == forms.end())
+        ReadFormRows(grid, &forms[grid]);
+    FormRows& rows = forms[grid];
+    auto found = rows.rowOfField.find(view);
+    if (found == rows.rowOfField.end() || found->second >= (int32) rows.labels.size())
+        return;
+    const int32 row = found->second;
+    BStringView* label = dynamic_cast<BStringView*>(rows.labels[row]);
+    if (label == NULL)
+        return;
+    ShojiLinkLabel* link = new ShojiLinkLabel(attr.name.String(), label->Text());
+    if (!grid->RemoveView(label)) {
+        delete link;
+        return;
+    }
+    grid->AddView(link, 0, row);
+    delete label;
+    rows.labels[row] = link;
+}
+
 // controls are named after the attributes they show, the others of the template are left alone.
 status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMessage* values)
 {
@@ -197,6 +228,8 @@ status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMes
             continue;
         if (attr.list.isList)
             view = UpgradeToList(view, attr, forms);
+        else
+            UpgradeToLink(view, attr, forms);
 
         BString text;
         values->FindString(attr.name.String(), &text);

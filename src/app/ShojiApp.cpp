@@ -172,7 +172,7 @@ void ShojiApp::AboutRequested()
     BString name(hasVersion && version.short_info[0] != '\0' ? version.short_info : info.ref.name);
     BString number;
     if (hasVersion)
-        number = sen::VersionText(version);
+        number = sen::VersionText(version, info.ref);	// 1.0.0-beta.7-9: the package revision is added
     BString copyright("Copyright " B_UTF8_COPYRIGHT " 2024-2026 SEN Labs e.U.\nPart of SEN, the Semantic Extensions\nNative for Haiku (MIT license).");
 
     sen::AboutDialog* window = new sen::AboutDialog(name.String(), number.String(), hasVersion ? version.long_info : "", copyright.String(),

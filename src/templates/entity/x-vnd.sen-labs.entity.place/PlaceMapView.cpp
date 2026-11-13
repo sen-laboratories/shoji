@@ -12,6 +12,7 @@
 #include <Font.h>
 #include <LayoutUtils.h>
 #include <MenuItem.h>
+#include <MessageRunner.h>
 #include <Message.h>
 #include <Path.h>
 #include <Polygon.h>
@@ -34,6 +35,7 @@
 #include <deque>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -46,7 +48,13 @@ const int kPointZoom = 15;				// a place that is a point only: its street
 const double kFill = 0.7;				// the box of a place takes at most this much of the view
 const time_t kTileLifetime = 14 * 24 * 3600;
 const uint32 kTileArrived = 'mTle';
+const bigtime_t kTileTimeout = 5 * 1000000LL;			// a server that does not answer in this time is given up for the tile (the standard map is asked); the client waits 20 s by default
+const bigtime_t kServerPause = 60 * 1000000LL;			// ... and is not asked for the other tiles for this long
+const int kFetchThreads = 2;							// (the tile usage policy of OpenStreetMap allows two connections)
 const uint32 kStyleChosen = 'mSty';
+const uint32 kSpin = 'mSpn';
+const bigtime_t kSpinInterval = 90000;				// (about 11 steps a second)
+const int kSpokes = 12;
 const char* const kUserAgent = "SEN-Shoji/1.0 (Haiku; https://sen-labs.org)";
 
 // where the tiles come from: the style that the user chose (sen::mapstyles: the choice made in the view, else the default of the settings of the spatial navigator), and if its server does not answer the standard map of OpenStreetMap
@@ -89,7 +97,9 @@ struct PlaceMapView::Fetcher {
     std::set<unsigned long long> asked;
     BMessenger          view;
     bool                quit = false;
-    bool                running = false;
+    int                 workers = 0;
+    const sen::mapstyles::Style* downStyle = NULL;	// a style whose server did not answer: it is not asked until downUntil, the tiles come from the standard map
+    bigtime_t           downUntil = 0;
 
     Fetcher() : lock("tile fetcher") {}
 };
@@ -101,7 +111,7 @@ static status_t FetchTile(const Style& style, int zoom, int x, int y, const BPat
     const std::string address = sen::mapstyles::TileUrl(style, zoom, x, y);
     std::string body;
     int code = 0;
-    status_t status = sen::http::SocketGet(address.c_str(), kUserAgent, "image/png", &body, &code);
+    status_t status = sen::http::SocketGet(address.c_str(), kUserAgent, "image/png", &body, &code, kTileTimeout);
     if (status != B_OK || code != 200 || body.empty())
         return status != B_OK ? status : B_ERROR;
 
@@ -130,7 +140,7 @@ static int32 FetchThread(void* data)
         {
             BAutolock locker(fetcher->lock);
             if (fetcher->quit || fetcher->queue.empty()) {
-                fetcher->running = false;
+                fetcher->workers--;
                 return 0;
             }
             next = fetcher->queue.front();
@@ -139,18 +149,34 @@ static int32 FetchThread(void* data)
         // (the style that was chosen; if its server does not answer, the standard map is asked for this tile)
         bool got = false;
         const Style* chain[2] = { next.style, FallbackStyle() };
-        for (int i = 0; i < 2 && !got; i++) {
+        bool skipFirst;
+        {
+            BAutolock locker(fetcher->lock);
+            skipFirst = fetcher->downStyle == next.style && system_time() < fetcher->downUntil && chain[1] != chain[0];
+        }
+        for (int i = skipFirst ? 1 : 0; i < 2 && !got; i++) {
             if (i == 1 && chain[1] == chain[0])
                 break;
             BPath path;
-            got = TilePath(*chain[i], next.zoom, next.x, next.y, &path) && FetchTile(*chain[i], next.zoom, next.x, next.y, path) == B_OK;
+            if (!TilePath(*chain[i], next.zoom, next.x, next.y, &path))
+                continue;
+            const status_t status = FetchTile(*chain[i], next.zoom, next.x, next.y, path);
+            got = status == B_OK;
+            if (i == 0 && status != B_OK && status != B_ENTRY_NOT_FOUND) {
+                // (a server that does not answer: the tiles that are still to come do not wait for it again)
+                BAutolock locker(fetcher->lock);
+                fetcher->downStyle = next.style;
+                fetcher->downUntil = system_time() + kServerPause;
+            }
         }
         if (got) {
             BMessage arrived(kTileArrived);
             arrived.AddInt32("zoom", next.zoom);
+            arrived.AddInt32("x", next.x);
+            arrived.AddInt32("y", next.y);
             fetcher->view.SendMessage(&arrived);
         }
-        snooze(150000);	// (a few tiles, and not in a burst)
+        snooze(50000);	// (a few tiles, and not in a burst)
     }
 }
 
@@ -209,6 +235,9 @@ void PlaceMapView::_Init()
     fHasBox = false;
     fSouth = fNorth = fWest = fEast = 0;
     fZoom = kPointZoom;
+    fAnimation = NULL;
+    fSpin = 0;
+    fLoading = false;
     fFetcher = std::make_shared<Fetcher>();
     fStyle = NULL;
     _LoadStyle();
@@ -224,6 +253,7 @@ PlaceMapView::~PlaceMapView()
         fFetcher->quit = true;
         fFetcher->queue.clear();
     }
+    delete fAnimation;
     for (auto& tile : fTiles)
         delete tile.second;
 }
@@ -414,10 +444,17 @@ void PlaceMapView::_Layout()
     int count = 1 << tileZoom;
     int firstX = (int) floor(left / size), lastX = (int) floor((left + width) / size);
     int firstY = std::max(0, (int) floor(top / size)), lastY = std::min(count - 1, (int) floor((top + height) / size));
+    // (the tiles in the middle of the view first: they are what is looked at)
+    struct Wanted { double distance; int x, y; };
+    std::vector<Wanted> wanted;
+    const double centerX = (left + width / 2) / size, centerY = (top + height / 2) / size;
     for (int y = firstY; y <= lastY; y++) {
         for (int x = firstX; x <= lastX; x++)
-            _TileBitmap(tileZoom, ((x % count) + count) % count, y, NULL);
+            wanted.push_back({(x + 0.5 - centerX) * (x + 0.5 - centerX) + (y + 0.5 - centerY) * (y + 0.5 - centerY), x, y});
     }
+    std::sort(wanted.begin(), wanted.end(), [](const Wanted& a, const Wanted& b) { return a.distance < b.distance; });
+    for (const Wanted& tile : wanted)
+        _TileBitmap(tileZoom, ((tile.x % count) + count) % count, tile.y, NULL);
 }
 
 
@@ -466,11 +503,11 @@ BBitmap* PlaceMapView::_TileBitmap(int zoom, int x, int y, bool* primary)
         BAutolock locker(fFetcher->lock);
         if (fFetcher->asked.insert(key).second) {
             fFetcher->queue.push_back({fStyle, zoom, x, y});
-            if (!fFetcher->running) {
-                fFetcher->running = true;
+            if (fFetcher->workers < kFetchThreads && (int) fFetcher->queue.size() > fFetcher->workers) {
+                fFetcher->workers++;
                 thread_id thread = spawn_thread(FetchThread, "map tiles", B_LOW_PRIORITY, new std::shared_ptr<Fetcher>(fFetcher));
                 if (thread < 0 || resume_thread(thread) != B_OK)
-                    fFetcher->running = false;
+                    fFetcher->workers--;
             }
         }
     }
@@ -481,11 +518,32 @@ BBitmap* PlaceMapView::_TileBitmap(int zoom, int x, int y, bool* primary)
 void PlaceMapView::MessageReceived(BMessage* message)
 {
     if (message->what == kTileArrived) {
-        // a new file for a tile: it replaces the one in the memory
-        for (auto& tile : fTiles)
-            delete tile.second;
-        fTiles.clear();
-        fPrimaryTiles.clear();
+        // a new file for a tile: it replaces the one in the memory (only that one: the others are not read and decoded again)
+        int32 zoom, x, y;
+        if (message->FindInt32("zoom", &zoom) == B_OK && message->FindInt32("x", &x) == B_OK && message->FindInt32("y", &y) == B_OK) {
+            const unsigned long long key = TileKey(zoom, x, y);
+            auto found = fTiles.find(key);
+            if (found != fTiles.end()) {
+                delete found->second;
+                fTiles.erase(found);
+            }
+            fPrimaryTiles.erase(key);
+        } else {
+            for (auto& tile : fTiles)
+                delete tile.second;
+            fTiles.clear();
+            fPrimaryTiles.clear();
+        }
+        Invalidate();
+        return;
+    }
+    if (message->what == kSpin) {
+        // (only while tiles are on their way: the spinner turns, nothing else is drawn again)
+        if (!fLoading) {
+            _StopAnimation();
+            return;
+        }
+        fSpin = (fSpin + 1) % kSpokes;
         Invalidate();
         return;
     }
@@ -494,6 +552,56 @@ void PlaceMapView::MessageReceived(BMessage* message)
         return;
     }
     BView::MessageReceived(message);
+}
+
+
+void PlaceMapView::_StopAnimation()
+{
+    delete fAnimation;
+    fAnimation = NULL;
+}
+
+
+/** a card in the middle of the map: a spinner and "Loading map..." (or, when no server answers and nothing is on its way, "Map not available") */
+void PlaceMapView::_DrawLoading(BRect bounds, bool active)
+{
+    const char* text = active ? "Loading map..." : "Map not available";
+    BFont font;
+    GetFont(&font);
+    font_height height;
+    font.GetHeight(&height);
+    const float textHeight = height.ascent + height.descent;
+    const float spinner = active ? ceilf(textHeight * 1.3f) : 0;
+    const float gap = active ? 8 : 0;
+    const float width = spinner + gap + font.StringWidth(text) + 24, cardHeight = std::max(textHeight, spinner) + 16;
+    BRect card(0, 0, width, cardHeight);
+    // (in the upper part: the pin is in the middle)
+    card.OffsetTo(floorf((bounds.Width() - width) / 2), floorf(bounds.Height() * 0.25f - cardHeight / 2));
+
+    SetDrawingMode(B_OP_ALPHA);
+    SetBlendingMode(B_CONSTANT_ALPHA, B_ALPHA_OVERLAY);
+    SetHighColor(255, 255, 255, 215);
+    FillRoundRect(card, 6, 6);
+    SetHighColor(0, 0, 0, 60);
+    StrokeRoundRect(card, 6, 6);
+
+    if (active) {
+        // (twelve spokes; the one that is "first" moves, and the ones behind it fade)
+        const BPoint center(card.left + 12 + spinner / 2, (card.top + card.bottom) / 2);
+        const float inner = spinner * 0.22f, outer = spinner * 0.5f;
+        SetPenSize(2);
+        SetLineMode(B_ROUND_CAP, B_ROUND_JOIN);
+        for (int spoke = 0; spoke < kSpokes; spoke++) {
+            const float angle = (float) spoke * 2 * (float) M_PI / kSpokes;
+            const int age = ((fSpin - spoke) % kSpokes + kSpokes) % kSpokes;
+            SetHighColor(40, 40, 40, (uint8) (230 - age * 17));
+            StrokeLine(BPoint(center.x + sinf(angle) * inner, center.y - cosf(angle) * inner), BPoint(center.x + sinf(angle) * outer, center.y - cosf(angle) * outer));
+        }
+        SetPenSize(1);
+    }
+    SetDrawingMode(B_OP_COPY);
+    SetHighColor(40, 40, 40);
+    DrawString(text, BPoint(card.left + 12 + spinner + gap, card.top + 8 + height.ascent + (cardHeight - 16 - textHeight) / 2));
 }
 
 
@@ -549,13 +657,17 @@ void PlaceMapView::Draw(BRect updateRect)
     SetHighColor(tint_color(ui_color(B_PANEL_BACKGROUND_COLOR), B_DARKEN_1_TINT));
     FillRect(bounds & updateRect);
     bool anyPrimary = false;
+    int missing = 0, drawn = 0;
     for (int y = firstY; y <= lastY; y++) {
         for (int x = firstX; x <= lastX; x++) {
             bool primary = false;
             BBitmap* tile = _TileBitmap(tileZoom, ((x % count) + count) % count, y, &primary);
-            if (tile == NULL)
+            if (tile == NULL) {
+                missing++;
                 continue;
+            }
             anyPrimary = anyPrimary || primary;
+            drawn++;
             float x0 = (float) (x * size - left), y0 = (float) (y * size - top);
             if (size == 256.0)
                 DrawBitmap(tile, BPoint(x0, y0));
@@ -563,6 +675,22 @@ void PlaceMapView::Draw(BRect updateRect)
                 DrawBitmap(tile, tile->Bounds(), BRect(x0, y0, x0 + (float) size - 1, y0 + (float) size - 1), B_FILTER_BITMAP_BILINEAR);
         }
     }
+    // tiles that are not here yet: the map says that it is working on them (and, if the server does not answer at all, that it does not have them)
+    bool active = false;
+    if (missing > 0) {
+        BAutolock locker(fFetcher->lock);
+        active = fFetcher->workers > 0 || !fFetcher->queue.empty();
+    }
+    fLoading = missing > 0 && active;
+    // (the card whenever tiles are on their way, also when some are shown already; when nothing is on its way and the map is empty, it says so)
+    if (missing > 0 && (active || drawn == 0))
+        _DrawLoading(bounds, active);
+    if (fLoading && fAnimation == NULL && Window() != NULL) {
+        fAnimation = new BMessageRunner(BMessenger(this), new BMessage(kSpin), kSpinInterval);
+        if (fAnimation->InitCheck() != B_OK)
+            _StopAnimation();
+    }
+
     // (what the licences ask the map to say, in lines that fit the view)
     const Style& shown = anyPrimary ? *fStyle : *FallbackStyle();
     const char* const* attribution = shown.attribution;

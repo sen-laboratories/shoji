@@ -16,12 +16,17 @@ class BGridView;
 class BOutlineListView;
 class BScrollView;
 class BSplitView;
+class ShojiTableControl;
 
 /**
  * A form for a BMessage (docs/spec-settings-and-message-template.md in sento, sections 2 to 5 and 7). The controls are made from the data: a check box for a bool, a
  * text field for a number or a string (checked against the type and the range of the schema), a menu for a choice, a list for a field with several values; a nested
  * message is a node of the tree on the left, and the controls of the selected node are on the right. A field of a type that no text stands for is shown, read-only,
  * and kept as it is.
+ *
+ * A message that the schema gives `kind = table` (an array of messages: a row for each, a column for each field) or `kind = properties` (the fields of the message: a row
+ * for each, with the name and the value) is one table (ShojiTableControl) in the pane, not nodes of the tree. A cell shows its value and is edited in a control that
+ * replaces it when it is clicked; its path key is that of the value (`programs_02.level`, `nested.mode`).
  *
  * Every control is named with the path key of the value it shows (SenSettingsPath.h), as the controls of the attribute templates are named after the attributes.
  *
@@ -77,6 +82,13 @@ public:
     virtual void            MessageReceived(BMessage* message);
 
 private:
+    struct Table {
+        std::string         path;           ///< the path key of the message that is shown as a table (the name of the control)
+        std::string         node;           ///< the node it is in
+        std::string         name;           ///< the field
+        std::string         kind;           ///< `table` or `properties`
+    };
+
     struct Known {
         std::string         name;
         type_code           type;
@@ -93,6 +105,10 @@ private:
     void                    _ShowNode(const std::string& path);
     void                    _FillPane(BGridView* pane, const std::string& node);
     void                    _Learn(const std::string& node, const BMessage& message);
+    void                    _AddTable(BGridView* pane, int32* row, const std::string& node, const std::string& key, const std::string& name, const std::string& kind);
+    void                    _FillTable(ShojiTableControl* control, const Table& table);
+    /** makes the rows of the tables again from the working copy; of the tables that have the cell `path`, or all of them if it is empty */
+    void                    _RefreshTables(const std::string& path);
     void                    _AddField(BGridView* pane, int32* row, const std::string& node, const std::string& key, const Known& field, const BMessage& message);
 
     void                    _ApplyText(const std::string& path, const std::string& text);
@@ -103,6 +119,8 @@ private:
     void                    _UpdateEnabled();
     void                    _ShowList(const std::string& node, const std::string& name);
     void                    _Changed(const char* path, const char* value);
+    /** a row of the table at `tablePath` was moved from one place to another: the working copy follows, the target is told */
+    void                    _ReorderRows(const std::string& tablePath, int32 from, int32 to);
     void                    _HandleSetData(BMessage* message);
     void                    _Reply(BMessage* message, status_t result);
 
@@ -118,6 +136,8 @@ private:
     BString                 fRootLabel;
     std::string             fNode;                      ///< the path of the node that is shown
     std::vector<std::string> fTextPaths;                ///< the text fields of the pane that is shown
+    std::vector<Table>      fTables;                    ///< the tables of the pane that is shown
+    std::map<std::string, std::vector<float> > fTableWidths;    ///< the widths that the user gave the columns of a table, by its path: kept when the pane is made again
 
     BSplitView*             fSplit;
     BScrollView*            fTreeScroll;

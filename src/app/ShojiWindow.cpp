@@ -33,7 +33,10 @@
 
 #include <sen/SenStripeDialog.h>
 
+#include <string.h>
+
 #include "ShojiApp.h"
+#include "ShojiLinkLabel.h"
 #include "ShojiWindow.h"
 #include "ShojiView.h"
 #include "ShojiGenericFormView.h"
@@ -51,14 +54,15 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BRect(BPoint(320.0, 128.0), BSize(580.0, 576.0)),
     "Shoji Entity Viewer",
     B_DOCUMENT_WINDOW,
-    B_WILL_ACCEPT_FIRST_CLICK | B_AUTO_UPDATE_SIZE_LIMITS),    // (the window is never smaller than its form needs)
+    B_AUTO_UPDATE_SIZE_LIMITS),    // (the window is never smaller than its form needs; no B_WILL_ACCEPT_FIRST_CLICK: a click in the window would pass through without activating it)
     fRef(*ref),
     fWritable(false),
     fEntityView(NULL),
     fRevertButton(NULL),
     fMenuBar(NULL),
     fPanel(NULL),
-    fPictureHeight(0)
+    fPictureHeight(0),
+    fStripe(NULL)
 {
 	// as the About windows of SEN: the picture on a dark stripe on the left, the entity on the light panel
 	BGroupLayout* outer = new BGroupLayout(B_VERTICAL, 0);
@@ -141,7 +145,8 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BBitmap* full = NULL;
     BBitmap* picture = LoadPicture(kPictureHeight, &full);
     fPictureHeight = picture != NULL ? picture->Bounds().Height() + 1 : 0;
-    root->AddView(new sen::StripeView(picture, full));
+    fStripe = new sen::StripeView(picture, full);
+    root->AddView(fStripe);
     root->AddView(panel);
     fPanel = panel;
     ConnectControls();
@@ -212,6 +217,18 @@ BBitmap* ShojiWindow::LoadPicture(float height, BBitmap** full)
     return NULL;
 }
 
+// The picture of the stripe again: a thumbnail has been written (or changed, or taken away: the icon of the file is the picture then).
+void ShojiWindow::RefreshPicture()
+{
+    if (fStripe == NULL)
+        return;
+    BBitmap* full = NULL;
+    BBitmap* picture = LoadPicture(kPictureHeight, &full);
+    fPictureHeight = picture != NULL ? picture->Bounds().Height() + 1 : 0;
+    fStripe->SetPicture(picture, full);
+    AlignForm();
+}
+
 void ShojiWindow::MessageReceived(BMessage* message)
 {
     switch (message->what) {
@@ -238,13 +255,32 @@ void ShojiWindow::MessageReceived(BMessage* message)
         case kMsgRevert:
             Revert();
             break;
+        case ShojiLinkLabel::kClicked:
+        {
+            // the label of a field was clicked (the homepage: the web browser; the location: the place enricher): what the field says now is followed
+            const char* name = NULL;
+            BTextControl* field = message->FindString("attribute", &name) == B_OK ? dynamic_cast<BTextControl*>(FindControl(name)) : NULL;
+            if (field != NULL) {
+                bool lookupStarted = false;
+                shoji::OpenLink(shoji::LinkKindOf(name), field->Text(), fRef, &lookupStarted);
+                // the place enricher works on its own: when the relation to the place appears in the file, the place is opened (the feedback that it was found and linked)
+                fPendingPlace = lookupStarted ? field->Text() : "";
+            }
+            break;
+        }
         case B_NODE_MONITOR:
         {
             int32 opcode;
             const char* name;
             if (message->FindInt32("opcode", &opcode) == B_OK && opcode == B_ATTR_CHANGED
-                    && message->FindString("attr", &name) == B_OK)
+                    && message->FindString("attr", &name) == B_OK) {
+                // the thumbnail that was written after the window was opened is the picture now
+                if (strcmp(name, kAttrThumbnail) == 0)
+                    RefreshPicture();
+                if (!fPendingPlace.IsEmpty() && shoji::IsRelationAttribute(name) && shoji::OpenLinkedPlace(fRef, fPendingPlace.String()))
+                    fPendingPlace = "";
                 ExternalChange(name);
+            }
             break;
         }
         case kMsgExternalChoice:
