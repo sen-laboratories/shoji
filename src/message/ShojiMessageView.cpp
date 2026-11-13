@@ -574,8 +574,11 @@ void ShojiMessageView::MessageReceived(BMessage* message)
                 const char* shows;
                 BStringView* line;
                 if (message->FindString("shows", &shows) == B_OK && (line = dynamic_cast<BStringView*>(ControlFor(shows))) != NULL) {
-                    line->SetText("Waiting for the answer...");
+                    line->SetText("Waiting for reply...");
                     line->SetToolTip((const char*)NULL);
+                    // (the button waits, too: the form is made again from the answer, which enables it)
+                    if (BControl* button = dynamic_cast<BControl*>(ControlFor(path)))
+                        button->SetEnabled(false);
                     if (BGroupView* group = dynamic_cast<BGroupView*>(line->Parent())) {
                         for (int32 i = 0; i < group->CountChildren(); i++) {
                             if (dynamic_cast<IconView*>(group->ChildAt(i)) != NULL)
