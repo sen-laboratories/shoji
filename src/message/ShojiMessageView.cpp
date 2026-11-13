@@ -570,6 +570,19 @@ void ShojiMessageView::MessageReceived(BMessage* message)
                 action.AddString(form::kFieldPath, path);
                 action.AddInt32(form::kFieldProtocol, form::kProtocol);
                 fTarget.SendMessage(&action);
+                // the line that the button shows its result in says that the answer is awaited, instead of the one of the last time (no icon): the only place that tells the state of the work
+                const char* shows;
+                BStringView* line;
+                if (message->FindString("shows", &shows) == B_OK && (line = dynamic_cast<BStringView*>(ControlFor(shows))) != NULL) {
+                    line->SetText("Waiting for the answer...");
+                    line->SetToolTip((const char*)NULL);
+                    if (BGroupView* group = dynamic_cast<BGroupView*>(line->Parent())) {
+                        for (int32 i = 0; i < group->CountChildren(); i++) {
+                            if (dynamic_cast<IconView*>(group->ChildAt(i)) != NULL)
+                                group->ChildAt(i)->Hide();
+                        }
+                    }
+                }
             }
             break;
         }
@@ -1090,6 +1103,9 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     if (kind == form::kKindButton) {
         BMessage* pressed = new BMessage(kMsgAction);
         pressed->AddString("path", path.c_str());
+        const char* resultField = NULL;
+        if (attributes.FindString(form::kAttrShows, &resultField) == B_OK)
+            pressed->AddString("shows", ChildPath(node, resultField).c_str());
         BButton* button = new BButton(path.c_str(), label.c_str(), pressed);
         button->SetEnabled(fEditable);
         if (help != NULL)
