@@ -23,6 +23,8 @@
 
 #include "ShojiTemplateView.h"
 #include "ShojiLinkLabel.h"
+#include "ShojiDuration.h"
+#include "ShojiDurationControl.h"
 #include "ShojiListControl.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceMapView.h"
 
@@ -188,6 +190,34 @@ static BView* UpgradeToList(BView* view, const ShojiAttribute& attr, std::map<BG
     return list;
 }
 
+// A duration (an ISO 8601 text such as PT2H) is shown and typed as a clock time: the field is replaced, in its place, by the control for durations (as the generated forms do). The label
+// stays where it is, in the first column; a template that has the control itself is left alone.
+static BView* UpgradeToDuration(BView* view, const ShojiAttribute& attr, std::map<BGridLayout*, FormRows>& forms)
+{
+    BTextControl* field = dynamic_cast<BTextControl*>(view);
+    BView* parent = view->Parent();
+    BGridLayout* grid = parent != NULL ? dynamic_cast<BGridLayout*>(parent->GetLayout()) : NULL;
+    if (field == NULL || grid == NULL || attr.type != B_STRING_TYPE || !shoji::IsDurationAttribute(attr.name.String()) || dynamic_cast<ShojiDurationControl*>(view) != NULL)
+        return view;
+    if (forms.find(grid) == forms.end())
+        ReadFormRows(grid, &forms[grid]);
+    auto found = forms[grid].rowOfField.find(view);
+    if (found == forms[grid].rowOfField.end())
+        return view;
+    const int32 row = found->second;
+
+    ShojiDurationControl* duration = new ShojiDurationControl(attr.name.String(), "");
+    if (!grid->RemoveView(field)) {
+        delete duration;
+        return view;
+    }
+    grid->AddView(duration, 1, row);
+    forms[grid].rowOfField.erase(view);
+    forms[grid].rowOfField[duration] = row;
+    delete field;
+    return duration;
+}
+
 // The label of a field that links somewhere (the homepage, the location) is a link: the label view of the first column is replaced, in its place, by one that is shown and
 // acts as a link while the field has a text (see ShojiLinkLabel). A template that has a label of another kind is left alone.
 static void UpgradeToLink(BView* view, const ShojiAttribute& attr, std::map<BGridLayout*, FormRows>& forms)
@@ -229,6 +259,8 @@ status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMes
         if (attr.list.isList)
             view = UpgradeToList(view, attr, forms);
         else
+            view = UpgradeToDuration(view, attr, forms);
+        if (!attr.list.isList)
             UpgradeToLink(view, attr, forms);
 
         BString text;

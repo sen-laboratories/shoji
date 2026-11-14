@@ -15,6 +15,8 @@
 
 #include <cstring>
 
+#include <sen/SenTimeAttributes.h>
+
 #include "ShojiDateControl.h"
 #include "ShojiDuration.h"
 #include "ShojiDurationControl.h"
@@ -98,7 +100,7 @@ BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, co
         ShojiListControl* list = new ShojiListControl(attr.name.String(), attr.list.separator);
         list->SetListText(text);
         control = list;
-    } else if (attr.type == B_TIME_TYPE && ShojiDateControl::IsDateText(text)) {
+    } else if (attr.type == B_TIME_TYPE && ShojiDateControl::IsDateText(text) && sen::timeattr::Find(attr.name.String()) == NULL) {
         // a date (midnight UTC), as in the form of a message: the date control of the Time preferences; a time of day, or no value, is typed
         ShojiDateControl* date = new ShojiDateControl(attr.name.String());
         date->SetDateText(text);

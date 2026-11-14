@@ -20,6 +20,8 @@
 #include <limits>
 #include <type_traits>
 
+#include <sen/SenTimeAttributes.h>
+
 #include "ShojiAttributes.h"
 #include "ShojiDateControl.h"
 #include "ShojiDuration.h"
@@ -240,7 +242,25 @@ status_t LoadAttribute(BNode& node, ShojiAttribute* attr, BString* text)
     if (bytes < 0)
         return (status_t)bytes;
 
-    return FormatValue(info.type, data.data(), bytes, text);
+    status_t formatted = FormatValue(info.type, data.data(), bytes, text);
+
+    // the start and the end of something: a value that is not exact has its text beside the time (1994-05~, 2026-11-14), which is what is shown while it still gives that moment
+    if (formatted == B_OK && info.type == B_TIME_TYPE && sen::timeattr::Find(attr->name.String()) != NULL) {
+        long long seconds = 0;
+        if (bytes == (ssize_t)sizeof(int32)) {
+            int32 value;
+            memcpy(&value, data.data(), sizeof(value));
+            seconds = value;
+        } else if (bytes == (ssize_t)sizeof(int64)) {
+            int64 value;
+            memcpy(&value, data.data(), sizeof(value));
+            seconds = value;
+        }
+        std::string fuzzy;
+        if (sen::timeattr::FuzzyText(node, attr->name.String(), seconds, &fuzzy))
+            text->SetTo(fuzzy.c_str());
+    }
+    return formatted;
 }
 
 // --- writing: text to attribute data
@@ -348,6 +368,10 @@ status_t StoreAttribute(BNode& node, const ShojiAttribute& attr, const char* tex
 {
     if (!IsSupportedType(attr.type))
         return B_NOT_SUPPORTED;
+
+    // the start and the end of something take a day, a time, or a time that is not exact (1994-05~, 202X): the time is stored with the text of such a value beside it
+    if (attr.type == B_TIME_TYPE && sen::timeattr::Find(attr.name.String()) != NULL)
+        return sen::timeattr::Store(node, attr.name.String(), text);
 
     BString value(text);
     if (attr.type != B_STRING_TYPE)

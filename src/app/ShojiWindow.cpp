@@ -37,6 +37,8 @@
 
 #include "ShojiApp.h"
 #include "ShojiLinkLabel.h"
+#include <sen/SenTimeAttributes.h>
+
 #include "ShojiWindow.h"
 #include "ShojiView.h"
 #include "ShojiGenericFormView.h"
@@ -577,6 +579,11 @@ void ShojiWindow::Revert()
 // The new value is also the one that Revert goes back to: it must not put back what others have replaced since.
 void ShojiWindow::ExternalChange(const char* name)
 {
+    // the text of a time that is not exact is shown in the field of the time: a change of the one is a change of the other
+    if (const char* time = sen::timeattr::PrimaryOf(name)) {
+        ExternalChange(time);
+        return;
+    }
     const ShojiAttribute* attr = FindAttribute(name);
     BNode node(&fRef);
     if (attr == NULL || node.InitCheck() != B_OK)
