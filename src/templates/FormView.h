@@ -22,6 +22,11 @@ class FormView : public BGridView {
         static BArchivable* Instantiate(BMessage* archive);
 
         BTextControl*   AddField(const char* attribute, const char* label);
+        /**
+         * A field with a button that opens a menu of common values (the kinds of an event); the field is the same text field, so that any other text can be typed. The values are
+         * kept in the message of the button, which the template archives with the form.
+         */
+        BTextControl*   AddChoiceField(const char* attribute, const char* label, const char* const* choices, unsigned count);
         /** nothing to do now that the grid sets the widths, kept so that a template says where it ends */
         void            Finish();
 

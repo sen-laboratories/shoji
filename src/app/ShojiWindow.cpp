@@ -6,6 +6,7 @@
 #include <Alert.h>
 #include <Invoker.h>
 #include <Menu.h>
+#include <PopUpMenu.h>
 #include <MenuBar.h>
 #include <MenuItem.h>
 #include <NodeMonitor.h>
@@ -251,6 +252,44 @@ void ShojiWindow::MessageReceived(BMessage* message)
                     fDirty.erase(name);
                 UpdateTitle();
                 UpdateRevertButton();
+            }
+            break;
+        }
+        case SHOJI_MSG_CHOOSE:
+        {
+            // the button of a field with common values: a menu of them under the button
+            const char* name = NULL;
+            const ShojiAttribute* attr;
+            if (message->FindString(SHOJI_FIELD_ATTR, &name) != B_OK || (attr = FindAttribute(name)) == NULL || !attr->editable)
+                break;
+            BString buttonName(name);
+            buttonName << SHOJI_CHOOSE_BUTTON_SUFFIX;
+            BView* button = FindView(buttonName.String());
+            if (button == NULL)
+                break;
+            BPopUpMenu* menu = new BPopUpMenu("common values", false, false);
+            const char* choice;
+            for (int32 i = 0; message->FindString("choice", i, &choice) == B_OK; i++) {
+                BMessage* pick = new BMessage(SHOJI_MSG_CHOSEN);
+                pick->AddString(SHOJI_FIELD_ATTR, name);
+                pick->AddString("choice", choice);
+                menu->AddItem(new BMenuItem(choice, pick));
+            }
+            menu->SetTargetForItems(this);
+            // (asynchronous: the menu deletes itself when it is closed)
+            menu->Go(button->ConvertToScreen(BPoint(0, button->Bounds().Height() + 1)), true, true, true);
+            break;
+        }
+        case SHOJI_MSG_CHOSEN:
+        {
+            const char* name = NULL;
+            const char* choice = NULL;
+            if (message->FindString(SHOJI_FIELD_ATTR, &name) != B_OK || message->FindString("choice", &choice) != B_OK)
+                break;
+            // what was chosen goes into the field and is stored, as if it had been typed and entered
+            if (BTextControl* field = dynamic_cast<BTextControl*>(FindControl(name))) {
+                field->SetText(choice);
+                Commit(name);
             }
             break;
         }
