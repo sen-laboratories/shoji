@@ -38,6 +38,7 @@
 
 #include "ShojiApp.h"
 #include "ShojiLinkLabel.h"
+#include <sen/SenAttrValues.h>
 #include <sen/SenTimeAttributes.h>
 
 #include "ShojiWindow.h"
@@ -106,6 +107,8 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BMessage superTypeAttrInfo;
     if (mimeType.GetSupertype(&superType) == B_OK)
         superType.GetAttrInfo(&superTypeAttrInfo);
+
+    fMimeType = mimeType.Type();
 
     // attributes are edited only if the file can be written
     fWritable = IsFileWritable();
@@ -178,6 +181,11 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
 ShojiWindow::~ShojiWindow()
 {
     stop_watching(this);
+
+    // (the lists follow text views of this window: they end while the views are there)
+    for (sen::FilterPopUpMenu* menu : fFilterMenus)
+        delete menu;
+    fFilterMenus.clear();
 
     if (fEntityView != NULL) {
         // the window deletes its views; one that never was added (a failed setup) is ours
@@ -255,42 +263,12 @@ void ShojiWindow::MessageReceived(BMessage* message)
             }
             break;
         }
-        case SHOJI_MSG_CHOOSE:
-        {
-            // the button of a field with common values: a menu of them under the button
-            const char* name = NULL;
-            const ShojiAttribute* attr;
-            if (message->FindString(SHOJI_FIELD_ATTR, &name) != B_OK || (attr = FindAttribute(name)) == NULL || !attr->editable)
-                break;
-            BString buttonName(name);
-            buttonName << SHOJI_CHOOSE_BUTTON_SUFFIX;
-            BView* button = FindView(buttonName.String());
-            if (button == NULL)
-                break;
-            BPopUpMenu* menu = new BPopUpMenu("common values", false, false);
-            const char* choice;
-            for (int32 i = 0; message->FindString("choice", i, &choice) == B_OK; i++) {
-                BMessage* pick = new BMessage(SHOJI_MSG_CHOSEN);
-                pick->AddString(SHOJI_FIELD_ATTR, name);
-                pick->AddString("choice", choice);
-                menu->AddItem(new BMenuItem(choice, pick));
-            }
-            menu->SetTargetForItems(this);
-            // (asynchronous: the menu deletes itself when it is closed)
-            menu->Go(button->ConvertToScreen(BPoint(0, button->Bounds().Height() + 1)), true, true, true);
-            break;
-        }
         case SHOJI_MSG_CHOSEN:
         {
+            // a value was picked from the list of common values (it is in the field already): it is stored, as if it had been typed and entered
             const char* name = NULL;
-            const char* choice = NULL;
-            if (message->FindString(SHOJI_FIELD_ATTR, &name) != B_OK || message->FindString("choice", &choice) != B_OK)
-                break;
-            // what was chosen goes into the field and is stored, as if it had been typed and entered
-            if (BTextControl* field = dynamic_cast<BTextControl*>(FindControl(name))) {
-                field->SetText(choice);
+            if (message->FindString(SHOJI_FIELD_ATTR, &name) == B_OK)
                 Commit(name);
-            }
             break;
         }
         case kMsgRevert:
@@ -479,6 +457,18 @@ void ShojiWindow::ConnectControls()
             textControl->SetModificationMessage(edited);
             textControl->SetMessage(commit);
             textControl->SetTarget(this);
+
+            // an attribute that has common values (the kinds of an event, in the ontology) gets the list that follows what is typed; other text is taken if the ontology allows it
+            sen::attrvalues::Values values;
+            if (sen::attrvalues::Load(fMimeType.String(), attr.name.String(), &values)) {
+                BMessage* chosen = new BMessage(SHOJI_MSG_CHOSEN);
+                chosen->AddString(SHOJI_FIELD_ATTR, attr.name.String());
+                sen::FilterPopUpMenu* menu = new sen::FilterPopUpMenu(attr.name.String(), chosen);
+                menu->SetValues(values);
+                menu->SetTargetForChoice(this);
+                menu->AttachTo(textControl->TextView());
+                fFilterMenus.push_back(menu);
+            }
         } else if (BCheckBox* checkBox = dynamic_cast<BCheckBox*>(view)) {
             checkBox->SetMessage(commit);
             checkBox->SetTarget(this);

@@ -21,12 +21,8 @@
 #define SHOJI_MSG_ATTR_COMMIT   'SHco'
 // string field of both messages: the name of the attribute
 #define SHOJI_FIELD_ATTR        "shoji:attr"
-// sent by the button of a field that offers common values (FormView::AddChoiceField): open the menu of them; the `choice` fields of the message are the values
-#define SHOJI_MSG_CHOOSE        'SHch'
-// sent by an item of that menu: the value that was chosen (field `choice`) goes into the field of the attribute and is stored
+// sent by the list of common values that follows a text field (sen::FilterPopUpMenu): a value was picked; it is in the field already and is stored
 #define SHOJI_MSG_CHOSEN        'SHcn'
-// the name of the button of a field (the name of the attribute and this)
-#define SHOJI_CHOOSE_BUTTON_SUFFIX "+choose"
 
 /*
  * One attribute of the MIME type of the edited file, as declared in its attribute info
