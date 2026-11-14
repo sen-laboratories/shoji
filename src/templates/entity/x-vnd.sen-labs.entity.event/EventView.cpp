@@ -18,7 +18,7 @@ EventView::EventView() : FormView("Event View") {
         const char* kinds[values::kEventTypeCount];
         for (unsigned i = 0; i < values::kEventTypeCount; i++)
             kinds[i] = values::kEventType[i].text;
-        AddChoiceField(sen::onto::temporal::attr::kEventType, "Type", kinds, values::kEventTypeCount);
+        AddChoiceField(sen::onto::temporal::attr::kEventType, "Event Type", kinds, values::kEventTypeCount);
     }
     AddField("dc:description", "Description");
     AddField("schema:startDate", "Start")->SetToolTip(kTimeHelp);
