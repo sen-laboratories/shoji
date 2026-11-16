@@ -24,6 +24,9 @@
 #include "ShojiTemplateView.h"
 #include "ShojiLinkLabel.h"
 #include "ShojiDuration.h"
+#include <sen/SenTimeAttributes.h>
+
+#include "ShojiDateControl.h"
 #include "ShojiDurationControl.h"
 #include "ShojiListControl.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceMapView.h"
@@ -218,6 +221,38 @@ static BView* UpgradeToDuration(BView* view, const ShojiAttribute& attr, std::ma
     return duration;
 }
 
+// A day (a birthday, a publication date: a value of type time at midnight UTC) is picked with the date control of the Time preferences, as in the generated forms: the field is replaced, in its
+// place, by the control. A field with no day yet (or a time of day) stays a text field, where a day is typed (2026-05-16); the times that the temporal engine reads (the start of an event,
+// with its fuzzy forms) are text as well. A template that has the control itself is left alone.
+static BView* UpgradeToDate(BView* view, const ShojiAttribute& attr, const char* text, std::map<BGridLayout*, FormRows>& forms)
+{
+    BTextControl* field = dynamic_cast<BTextControl*>(view);
+    BView* parent = view->Parent();
+    BGridLayout* grid = parent != NULL ? dynamic_cast<BGridLayout*>(parent->GetLayout()) : NULL;
+    if (field == NULL || grid == NULL || attr.type != B_TIME_TYPE || !ShojiDateControl::IsDateText(text) || sen::timeattr::Find(attr.name.String()) != NULL)
+        return view;
+    if (forms.find(grid) == forms.end())
+        ReadFormRows(grid, &forms[grid]);
+    auto found = forms[grid].rowOfField.find(view);
+    if (found == forms[grid].rowOfField.end())
+        return view;
+    const int32 row = found->second;
+
+    ShojiDateControl* date = new ShojiDateControl(attr.name.String());
+    date->SetDateText(text);
+    // (as in the generated form: as wide as it needs, next to the label)
+    date->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+    if (!grid->RemoveView(field)) {
+        delete date;
+        return view;
+    }
+    grid->AddView(date, 1, row);
+    forms[grid].rowOfField.erase(view);
+    forms[grid].rowOfField[date] = row;
+    delete field;
+    return date;
+}
+
 // The label of a field that links somewhere (the homepage, the location) is a link: the label view of the first column is replaced, in its place, by one that is shown and
 // acts as a link while the field has a text (see ShojiLinkLabel). A template that has a label of another kind is left alone.
 static void UpgradeToLink(BView* view, const ShojiAttribute& attr, std::map<BGridLayout*, FormRows>& forms)
@@ -256,15 +291,16 @@ status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMes
         BView* view = fView->FindView(attr.name.String());
         if (view == NULL)
             continue;
-        if (attr.list.isList)
-            view = UpgradeToList(view, attr, forms);
-        else
-            view = UpgradeToDuration(view, attr, forms);
-        if (!attr.list.isList)
-            UpgradeToLink(view, attr, forms);
-
         BString text;
         values->FindString(attr.name.String(), &text);
+        if (attr.list.isList) {
+            view = UpgradeToList(view, attr, forms);
+        } else {
+            view = UpgradeToDuration(view, attr, forms);
+            view = UpgradeToDate(view, attr, text.String(), forms);
+        }
+        if (!attr.list.isList)
+            UpgradeToLink(view, attr, forms);
         if (!shoji::SetControlValue(view, text.String()))
             continue;
 
