@@ -9,7 +9,10 @@
 #include <DateTime.h>
 #include <Font.h>
 
+#include <ctype.h>
+#include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #include <algorithm>
 
@@ -19,7 +22,10 @@ ShojiDateControl::ShojiDateControl(const char* name, BMessage* message)
     fHasDate(false),
     fYear(0),
     fMonth(0),
-    fDay(0)
+    fDay(0),
+    fUnsettable(false),
+    fUnset(false),
+    fPending(false)
 {
 }
 
@@ -86,6 +92,118 @@ bool ShojiDateControl::IsDateText(const char* text)
 }
 
 
+bool ShojiDateControl::IsDayAttribute(const char* name)
+{
+    return name != NULL && (strcmp(name, "schema:birthDate") == 0 || strcmp(name, "schema:deathDate") == 0);
+}
+
+
+void ShojiDateControl::SetUnset()
+{
+    fUnset = true;
+    fPending = false;
+    if (Window() != NULL)
+        Invalidate();
+}
+
+
+void ShojiDateControl::_Begin()
+{
+    if (!fUnset)
+        return;
+    fUnset = false;
+    fPending = true;
+    const BDate today = BDate::CurrentDate(B_LOCAL_TIME);
+    SetDate(today.Year(), today.Month(), today.Day());
+    Invalidate();
+}
+
+
+void ShojiDateControl::MouseDown(BPoint where)
+{
+    if (fUnset && IsEnabled()) {
+        // the first click only shows a date to start from (the arrows would otherwise move it by a day at once)
+        MakeFocus(true);
+        _Begin();
+        return;
+    }
+    BPrivate::DateEdit::MouseDown(where);
+}
+
+
+void ShojiDateControl::KeyDown(const char* bytes, int32 numBytes)
+{
+    if (IsEnabled() && fUnsettable && numBytes == 1 && (bytes[0] == B_DELETE || bytes[0] == B_BACKSPACE)) {
+        if (!fUnset) {
+            SetUnset();
+            BControl::Invoke();		// (the text is empty now: the attribute is removed)
+        }
+        return;
+    }
+    if (fUnset && IsEnabled() && numBytes >= 1 && (isdigit((unsigned char)bytes[0]) || bytes[0] == B_UP_ARROW || bytes[0] == B_DOWN_ARROW)) {
+        _Begin();
+        if (!isdigit((unsigned char)bytes[0]))
+            return;
+    }
+    BPrivate::DateEdit::KeyDown(bytes, numBytes);
+}
+
+
+void ShojiDateControl::DoUpPress()
+{
+    if (fUnset) {
+        _Begin();
+        return;
+    }
+    BPrivate::DateEdit::DoUpPress();
+}
+
+
+void ShojiDateControl::DoDownPress()
+{
+    if (fUnset) {
+        _Begin();
+        return;
+    }
+    BPrivate::DateEdit::DoDownPress();
+}
+
+
+void ShojiDateControl::MakeFocus(bool focused)
+{
+    BPrivate::DateEdit::MakeFocus(focused);
+    // started at today's date but nothing was changed: it is no date that the user chose
+    if (!focused && fPending && fUnsettable)
+        SetUnset();
+}
+
+
+status_t ShojiDateControl::Invoke(BMessage* message)
+{
+    fPending = false;
+    return BPrivate::DateEdit::Invoke(message);
+}
+
+
+void ShojiDateControl::DrawSection(uint32 index, BRect bounds, bool hasFocus)
+{
+    if (!fUnset) {
+        BPrivate::DateEdit::DrawSection(index, bounds, hasFocus);
+        return;
+    }
+    // no date: dashes where the day, the month and the year are
+    PushState();
+    SetLowUIColor(B_DOCUMENT_BACKGROUND_COLOR);
+    FillRect(bounds, B_SOLID_LOW);
+    SetHighUIColor(B_DOCUMENT_TEXT_COLOR, B_LIGHTEN_1_TINT);
+    font_height height;
+    GetFontHeight(&height);
+    const char* text = "--";
+    DrawString(text, BPoint(bounds.left + floorf((bounds.Width() - StringWidth(text)) / 2), bounds.top + floorf((bounds.Height() + height.ascent - height.descent) / 2) + 1));
+    PopState();
+}
+
+
 bool ShojiDateControl::SetDateText(const char* text)
 {
     int year, month, day, used = 0;
@@ -93,6 +211,8 @@ bool ShojiDateControl::SetDateText(const char* text)
             || !BDate(year, month, day).IsValid())
         return false;
     fHasDate = true;
+    fUnset = false;
+    fPending = false;
     fYear = year;
     fMonth = month;
     fDay = day;
@@ -103,6 +223,8 @@ bool ShojiDateControl::SetDateText(const char* text)
 
 BString ShojiDateControl::DateText()
 {
+    if (fUnset)
+        return BString();
     const BDate date = GetDate();
     BString text;
     text.SetToFormat("%04d-%02d-%02d", (int)date.Year(), (int)date.Month(), (int)date.Day());

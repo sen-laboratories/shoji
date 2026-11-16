@@ -503,6 +503,8 @@ bool SetControlValue(BView* view, const char* text)
         // (a value that is not a date stays out: the control only holds dates)
         if (ShojiDateControl::IsDateText(text) && date->DateText() != text)
             date->SetDateText(text);
+        else if (text[0] == '\0' && date->Unsettable())
+            date->SetUnset();		// (the day was removed, here or elsewhere)
         return true;
     }
     return false;

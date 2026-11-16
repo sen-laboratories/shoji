@@ -229,7 +229,9 @@ static BView* UpgradeToDate(BView* view, const ShojiAttribute& attr, const char*
     BTextControl* field = dynamic_cast<BTextControl*>(view);
     BView* parent = view->Parent();
     BGridLayout* grid = parent != NULL ? dynamic_cast<BGridLayout*>(parent->GetLayout()) : NULL;
-    if (field == NULL || grid == NULL || attr.type != B_TIME_TYPE || !ShojiDateControl::IsDateText(text) || sen::timeattr::Find(attr.name.String()) != NULL)
+    // (a day that may be missing, the birthday, has the control with no date in it)
+    const bool empty = text[0] == '\0' && ShojiDateControl::IsDayAttribute(attr.name.String());
+    if (field == NULL || grid == NULL || attr.type != B_TIME_TYPE || !(ShojiDateControl::IsDateText(text) || empty) || sen::timeattr::Find(attr.name.String()) != NULL)
         return view;
     if (forms.find(grid) == forms.end())
         ReadFormRows(grid, &forms[grid]);
@@ -239,7 +241,13 @@ static BView* UpgradeToDate(BView* view, const ShojiAttribute& attr, const char*
     const int32 row = found->second;
 
     ShojiDateControl* date = new ShojiDateControl(attr.name.String());
-    date->SetDateText(text);
+    if (empty) {
+        date->SetUnsettable(true);
+        date->SetUnset();
+    } else {
+        date->SetUnsettable(ShojiDateControl::IsDayAttribute(attr.name.String()));
+        date->SetDateText(text);
+    }
     // (as in the generated form: as wide as it needs, next to the label)
     date->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
     if (!grid->RemoveView(field)) {

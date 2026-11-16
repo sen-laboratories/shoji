@@ -100,10 +100,16 @@ BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, co
         ShojiListControl* list = new ShojiListControl(attr.name.String(), attr.list.separator);
         list->SetListText(text);
         control = list;
-    } else if (attr.type == B_TIME_TYPE && ShojiDateControl::IsDateText(text) && sen::timeattr::Find(attr.name.String()) == NULL) {
-        // a date (midnight UTC), as in the form of a message: the date control of the Time preferences; a time of day, or no value, is typed
+    } else if (attr.type == B_TIME_TYPE && (ShojiDateControl::IsDateText(text) || (text[0] == '\0' && ShojiDateControl::IsDayAttribute(attr.name.String())))
+            && sen::timeattr::Find(attr.name.String()) == NULL) {
+        // a date (midnight UTC), as in the form of a message: the date control of the Time preferences; a time of day, or no value, is typed (except a day that may be missing, a birthday: the
+        // control shows no date then)
         ShojiDateControl* date = new ShojiDateControl(attr.name.String());
-        date->SetDateText(text);
+        date->SetUnsettable(ShojiDateControl::IsDayAttribute(attr.name.String()));
+        if (text[0] == '\0')
+            date->SetUnset();
+        else
+            date->SetDateText(text);
         control = date;
     } else if (attr.type == B_STRING_TYPE && shoji::IsDurationAttribute(attr.name.String())) {
         // an ISO 8601 duration (PT2H) is shown and typed as a clock time (02:00:00)
