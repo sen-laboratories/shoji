@@ -857,6 +857,67 @@ TestReorder(TestWindow* w)
 
 
 // a table that the schema has and the message has no rows for is shown empty, with the titles of its columns; a cell whose column has `busy_field` shows a spinner while the field of its row is true
+// a text field with `follows_table` shows a cell of the selected row (the key of the server), is disabled while no row is selected, and its edit is the edit of that cell
+static void
+TestFollower(TestWindow* w)
+{
+    BMessage settings, schema;
+    settings.AddString("title", "x");
+    for (const char* each : {"a", "b"}) {
+        BMessage row;
+        row.AddBool("enabled", true);
+        row.AddString("name", each);
+        row.AddString("key", strcmp(each, "a") == 0 ? "key-a" : "");
+        settings.AddMessage("servers", &row);
+    }
+    settings.AddString("api_key", "");
+    BMessage table;
+    table.AddString(form::kAttrKind, form::kKindTable);
+    schema.AddMessage("servers", &table);
+    BMessage hiddenKey;
+    hiddenKey.AddBool(form::kAttrHidden, true);
+    schema.AddMessage("servers.key", &hiddenKey);
+    BMessage nameColumn;
+    nameColumn.AddBool(form::kAttrReadOnly, true);
+    schema.AddMessage("servers.name", &nameColumn);
+    BMessage field;
+    field.AddString(form::kAttrLabel, "API key");
+    field.AddString(form::kAttrFollowsTable, "servers");
+    field.AddString(form::kAttrFollowsColumn, "key");
+    schema.AddMessage("api_key", &field);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+
+    ShojiTableControl* servers = Table(w, "servers");
+    BTextControl* key = TextField(w, "api_key");
+    CHECK(servers != NULL && key != NULL && servers->CountRows() == 2 && servers->CountColumns() == 2);		// (enabled, name: the key is not a column)
+    // no row selected: nothing in the field, and it cannot be edited
+    CHECK(servers->SelectedRow() < 0);
+    CHECK(!key->IsEnabled() && strcmp(key->Text(), "") == 0);
+    // a row is selected: its key
+    servers->SelectRow(0);
+    w->Settle();
+    CHECK(key->IsEnabled() && strcmp(key->Text(), "key-a") == 0);
+    servers->SelectRow(1);
+    w->Settle();
+    CHECK(key->IsEnabled() && strcmp(key->Text(), "") == 0);
+    // typing a key changes the cell of the selected row, and tells the owner so
+    w->Reset();
+    w->Type("api_key", "key-b");
+    CHECK(w->lastPath == "servers_01.key" && w->lastValue == "key-b");
+    CHECK(w->Text("servers_01.key") == "key-b" && w->Text("servers_00.key") == "key-a");
+    // back to the first row: its key; the field of the second is kept in the row
+    servers->SelectRow(0);
+    w->Settle();
+    CHECK(strcmp(key->Text(), "key-a") == 0);
+    servers->SelectRow(1);
+    w->Settle();
+    CHECK(strcmp(key->Text(), "key-b") == 0);
+    // the field is no value of its own: the owner never hears of `api_key`
+    CHECK(w->lastPath != "api_key");
+}
+
+
 static void
 TestEmptyAndBusy(TestWindow* w)
 {
@@ -1149,6 +1210,7 @@ int main(int argc, char** argv)
     TestButton(window);
     TestReorder(window);
     TestEmptyAndBusy(window);
+    TestFollower(window);
     window->Quit();
     TestNoTree();
 

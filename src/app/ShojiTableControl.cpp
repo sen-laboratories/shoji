@@ -355,6 +355,7 @@ public:
     {
         BListView::SelectionChanged();
         fTable->_FixColumn();
+        fTable->_TellSelection();
     }
 
     virtual void MakeFocus(bool focus = true)
@@ -530,6 +531,7 @@ ShojiTableControl::ShojiTableControl(const char* name)
     fFlexible(-1),
     fColumn(0),
     fMessage(NULL),
+    fSelectionMessage(NULL),
     fEditable(true),
     fReorderable(false),
     fSpinTimer(NULL),
@@ -557,6 +559,7 @@ ShojiTableControl::~ShojiTableControl()
 {
     delete fSpinTimer;
     delete fMessage;
+    delete fSelectionMessage;
 }
 
 
@@ -607,6 +610,23 @@ void ShojiTableControl::SetMessage(BMessage* message)
 {
     delete fMessage;
     fMessage = message;
+}
+
+
+void ShojiTableControl::SetSelectionMessage(BMessage* message)
+{
+    delete fSelectionMessage;
+    fSelectionMessage = message;
+}
+
+
+void ShojiTableControl::_TellSelection()
+{
+    if (fSelectionMessage == NULL || !fTarget.IsValid())
+        return;
+    BMessage message(*fSelectionMessage);
+    message.AddString("table", Name());
+    fTarget.SendMessage(&message);
 }
 
 

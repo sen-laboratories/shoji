@@ -72,6 +72,8 @@ public:
     void                    SetRows(const std::vector<Row>& rows);
     void                    SetMessage(BMessage* message);
     void                    SetTarget(BHandler* target);
+    /** Told to the target (with the name of the control in `table`) when another row is selected, or none: a field that follows the selected row shows its cell. */
+    void                    SetSelectionMessage(BMessage* message);
     /** a table that cannot be edited shows the values */
     void                    SetEditable(bool editable);
     bool                    IsEditable() const { return fEditable; }
@@ -144,6 +146,7 @@ private:
     void                    _EndEdit(bool keep, bool refocus);
     void                    _MoveColumn(int32 by);
     void                    _FixColumn();
+    void                    _TellSelection();
     void                    _UseCurrentCell();
     void                    _ClickCell(int32 row, int32 column);
 
@@ -157,6 +160,7 @@ private:
     int32                   fFlexible;
     int32                   fColumn;
     BMessage*               fMessage;
+    BMessage*               fSelectionMessage;
     BMessenger              fTarget;
     bool                    fEditable;
     bool                    fReorderable;

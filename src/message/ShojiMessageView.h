@@ -109,6 +109,11 @@ private:
     void                    _FillTable(ShojiTableControl* control, const Table& table);
     /** makes the rows of the tables again from the working copy; of the tables that have the cell `path`, or all of them if it is empty */
     void                    _RefreshTables(const std::string& path);
+    /** the fields that follow the selected row of a table show its cell (and are disabled while no row is selected) */
+    void                    _SyncFollowers();
+    /** the path of the cell and its text, for the field of a follower and the row that is selected in its table; false if there is none */
+    bool                    _FollowedCell(const std::string& fieldPath, std::string* cellPath, std::string* text);
+    bool                    _IsFollower(const std::string& fieldPath) const;
     void                    _AddField(BGridView* pane, int32* row, const std::string& node, const std::string& key, const Known& field, const BMessage& message);
 
     void                    _ApplyText(const std::string& path, const std::string& text);
@@ -137,6 +142,10 @@ private:
     std::string             fNode;                      ///< the path of the node that is shown
     std::vector<std::string> fTextPaths;                ///< the text fields of the pane that is shown
     std::vector<Table>      fTables;                    ///< the tables of the pane that is shown
+    struct Follower {                                   ///< a text field that shows a cell of the selected row of a table (`follows_table` in the schema)
+        std::string path, node, table, column;
+    };
+    std::vector<Follower>   fFollowers;
     struct Waiting {                                    ///< a button that was pressed and has no answer yet: what its line said before (restored by kActionDone)
         std::string button, line, text, tip;
     };

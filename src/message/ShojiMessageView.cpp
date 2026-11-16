@@ -111,6 +111,7 @@ enum {
     kMsgDate    = 'MVda',       // a date: path
     kMsgSelect  = 'MVse',       // a node of the tree was selected
     kMsgTable   = 'MVtb',       // a cell of a table was changed: path, value
+    kMsgRow     = 'MVrw',       // another row of a table was selected: table
     kMsgAction  = 'MVac'        // a button (kind `button`) was pressed: path
 };
 
@@ -694,6 +695,9 @@ void ShojiMessageView::MessageReceived(BMessage* message)
                 _ApplyText(path, control->DateText().String());
             break;
         }
+        case kMsgRow:
+            _SyncFollowers();
+            break;
         case kMsgTable:
         {
             const char* path;
@@ -873,6 +877,7 @@ void ShojiMessageView::_ShowNode(const std::string& path)
             fTableWidths[shownTable.path] = control->UserWidths();
     }
     fTables.clear();
+    fFollowers.clear();
     fWaitingButtons.clear();
     _FillPane(pane, path);
 
@@ -885,6 +890,7 @@ void ShojiMessageView::_ShowNode(const std::string& path)
     if (Window() != NULL)
         Connect(pane, this);
     _UpdateEnabled();
+    _SyncFollowers();
 
     for (int32 i = 0; i < fTree->FullListCountItems(); i++) {
         NodeItem* item = dynamic_cast<NodeItem*>(fTree->FullListItemAt(i));
@@ -1383,6 +1389,20 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         textControl->SetText(text.c_str());
     }
     textControl->SetEnabled(fEditable);
+    const char* followsTable = NULL;
+    const char* followsColumn = NULL;
+    if (attributes.FindString(form::kAttrFollowsTable, &followsTable) == B_OK && followsTable != NULL
+            && attributes.FindString(form::kAttrFollowsColumn, &followsColumn) == B_OK && followsColumn != NULL) {
+        // (it shows a cell of the row that is selected in the table: nothing, and no editing, until one is)
+        Follower follower;
+        follower.path = path;
+        follower.node = node;
+        follower.table = followsTable;
+        follower.column = followsColumn;
+        fFollowers.push_back(follower);
+        textControl->SetText("");
+        textControl->SetEnabled(false);
+    }
     if (help != NULL)
         textControl->SetToolTip(help);
     BLayoutItem* textLabel = textControl->CreateLabelLayoutItem();
@@ -1412,6 +1432,7 @@ void ShojiMessageView::_AddTable(BGridView* pane, int32* row, const std::string&
 
     ShojiTableControl* table = new ShojiTableControl(entry.path.c_str());
     table->SetMessage(new BMessage(kMsgTable));
+    table->SetSelectionMessage(new BMessage(kMsgRow));
     table->SetEditable(fEditable);
     table->SetReorderable(kind == "table" && attributes.GetBool(form::kAttrReorderable, false));
     std::map<std::string, std::vector<float> >::const_iterator widths = fTableWidths.find(entry.path);
@@ -1589,6 +1610,64 @@ void ShojiMessageView::_RefreshTables(const std::string& path)
         if (control != NULL)
             _FillTable(control, table);
     }
+    _SyncFollowers();
+}
+
+
+bool ShojiMessageView::_IsFollower(const std::string& fieldPath) const
+{
+    for (const Follower& follower : fFollowers) {
+        if (follower.path == fieldPath)
+            return true;
+    }
+    return false;
+}
+
+
+bool ShojiMessageView::_FollowedCell(const std::string& fieldPath, std::string* cellPath, std::string* text)
+{
+    for (const Follower& follower : fFollowers) {
+        if (follower.path != fieldPath)
+            continue;
+        ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(ChildPath(follower.node, follower.table).c_str()));
+        BMessage message;
+        if (control == NULL || !NodeIn(fWorking, follower.node, &message))
+            return false;
+        const int32 row = control->SelectedRow();
+        type_code type = 0;
+        int32 count = 0;
+        if (row < 0 || message.GetInfo(follower.table.c_str(), &type, &count) != B_OK || row >= count)
+            return false;
+        const std::string segment = SegmentFor(follower.table, (size_t)row, (size_t)count, detail::InfoOf(message));
+        BMessage each;
+        if (segment.empty() || message.FindMessage(follower.table.c_str(), row, &each) != B_OK)
+            return false;
+        const std::string cell = SegmentFor(follower.column, 0, 1, detail::InfoOf(each));
+        if (cell.empty())
+            return false;
+        if (GetText(each, EscapeSegment(cell), text) != B_OK)
+            *text = "";
+        *cellPath = ChildPath(ChildPath(follower.node, segment), cell);
+        return true;
+    }
+    return false;
+}
+
+
+void ShojiMessageView::_SyncFollowers()
+{
+    for (const Follower& follower : fFollowers) {
+        BTextControl* control = dynamic_cast<BTextControl*>(ControlFor(follower.path.c_str()));
+        if (control == NULL)
+            continue;
+        std::string cellPath, text;
+        const bool found = _FollowedCell(follower.path, &cellPath, &text);
+        if (!found)
+            text = "";
+        control->SetEnabled(found && fEditable);
+        if (text != control->Text())
+            control->SetText(text.c_str());
+    }
 }
 
 
@@ -1596,6 +1675,15 @@ void ShojiMessageView::_RefreshTables(const std::string& path)
 // the value as it is stored (007 is 7). A value that does not fit is refused and the control shows the old one.
 void ShojiMessageView::_ApplyText(const std::string& path, const std::string& text)
 {
+    // a field that follows the selected row of a table: the cell of that row is what changes
+    if (_IsFollower(path)) {
+        std::string cellPath, cellText;
+        if (fEditable && _FollowedCell(path, &cellPath, &cellText) && cellText != text)
+            _ApplyText(cellPath, text);
+        else
+            _SyncFollowers();
+        return;
+    }
     if (!fEditable) {
         _Show(path);
         return;
