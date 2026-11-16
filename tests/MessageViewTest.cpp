@@ -878,10 +878,17 @@ TestBinding(TestWindow* w)
         BMessage flag;                                          // (a part with a value of another type: a bool, for a check box)
         flag.AddBool("value", strcmp(each, "a") == 0);
         row.AddMessage("flag", &flag);
+        BMessage addr;                                          // (a part with a default: the revert button)
+        addr.AddString("value", strcmp(each, "a") == 0 ? "http://changed" : "http://standard");
+        addr.AddString("default", "http://standard");
+        row.AddMessage("addr", &addr);
         settings.AddMessage("servers", &row);
     }
     settings.AddString("api_key", "");
     settings.AddBool("flag_box", false);
+    settings.AddString("addr", "");
+    settings.AddBool("addr_revert", false);
+    settings.AddBool("test_all", false);
     BMessage table;
     table.AddString(form::kAttrKind, form::kKindTable);
     table.AddString(form::kAttrUpdateMsg, "TSTu");
@@ -905,12 +912,29 @@ TestBinding(TestWindow* w)
     field.AddString(form::kAttrLabel, "API key");
     field.AddString(form::kAttrBindToUpdateMsg, "TSTu");
     field.AddString(form::kAttrFieldId, "key");
+    field.AddString(form::kAttrBeside, "flag_box");		// (in the line of the check box)
     schema.AddMessage("api_key", &field);
     BMessage flagField;
     flagField.AddString(form::kAttrLabel, "Flag");
     flagField.AddString(form::kAttrBindToUpdateMsg, "TSTu");
     flagField.AddString(form::kAttrFieldId, "flag");
     schema.AddMessage("flag_box", &flagField);
+    BMessage addrField;
+    addrField.AddString(form::kAttrLabel, "Server address");
+    addrField.AddString(form::kAttrBindToUpdateMsg, "TSTu");
+    schema.AddMessage("addr", &addrField);
+    BMessage revert;
+    revert.AddString(form::kAttrLabel, "Revert");
+    revert.AddString(form::kAttrKind, form::kKindButton);
+    revert.AddString(form::kAttrBeside, "addr");
+    revert.AddString(form::kAttrBindToUpdateMsg, "TSTu");
+    revert.AddString(form::kAttrFieldId, "addr");
+    schema.AddMessage("addr_revert", &revert);
+    BMessage testAll;
+    testAll.AddString(form::kAttrLabel, "Test availability");
+    testAll.AddString(form::kAttrKind, form::kKindButton);
+    testAll.AddString(form::kAttrBeside, "servers");
+    schema.AddMessage("test_all", &testAll);
     w->view->SetData(settings, &schema, NULL);
     w->Settle();
 
@@ -961,6 +985,31 @@ TestBinding(TestWindow* w)
     servers->SelectRow(0);
     w->Settle();
     CHECK(flagBox->Value() == B_CONTROL_OFF);
+    // a revert button beside a field: enabled while the value is not the default; pressing it answers with the default
+    BTextControl* addr = TextField(w, "addr");
+    BButton* revertButton = dynamic_cast<BButton*>(w->view->ControlFor("addr_revert"));
+    CHECK(addr != NULL && revertButton != NULL && strcmp(addr->Text(), "http://changed") == 0 && revertButton->IsEnabled());
+    CHECK(revertButton != NULL && revertButton->Parent() == addr->Parent());		// (in the same cell: beside the field)
+    w->Reset();
+    if (revertButton != NULL)
+        revertButton->Invoke();
+    w->Settle();
+    CHECK(w->lastPath == "servers_00.addr.value" && w->lastValue == "http://standard" && w->actions == 0);
+    CHECK(strcmp(TextField(w, "addr")->Text(), "http://standard") == 0 && !dynamic_cast<BButton*>(w->view->ControlFor("addr_revert"))->IsEnabled());
+    // a button beside a table stands in the line of its label, and tells the owner as any button
+    BButton* testButton = dynamic_cast<BButton*>(w->view->ControlFor("test_all"));
+    CHECK(testButton != NULL && testButton->Parent() != NULL && testButton->Parent() != servers->Parent());		// (in the line of the label, not in a line of its own)
+    // the button stands in the column of the controls, at its left edge (not at the right end of the table); the key is in the line of the check box
+    BView* titleLine = testButton != NULL ? testButton->Parent() : NULL;
+    BView* flagLine = w->view->ControlFor("flag_box");
+    BTextControl* keyField = TextField(w, "api_key");
+    CHECK(titleLine != NULL && addr != NULL && fabs(testButton->ConvertToScreen(BPoint(0, 0)).x - addr->ConvertToScreen(BPoint(0, 0)).x) < 3);
+    CHECK(flagLine != NULL && keyField != NULL && fabs(flagLine->ConvertToScreen(BPoint(0, 0)).y - keyField->ConvertToScreen(BPoint(0, 0)).y) < 12 && keyField->ConvertToScreen(BPoint(0, 0)).x > flagLine->ConvertToScreen(BPoint(0, 0)).x);
+    w->Reset();
+    if (testButton != NULL)
+        testButton->Invoke();
+    w->Settle();
+    CHECK(w->actions == 1);
     // the form is made again with new data (the plugin answered with a status): the selected row stays
     BMessage again = w->view->Settings();
     w->view->SetData(again, &schema, NULL);

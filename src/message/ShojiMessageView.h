@@ -12,6 +12,8 @@
 #include <string>
 #include <vector>
 
+class BButton;
+class BTextControl;
 class BGridView;
 class BOutlineListView;
 class BScrollView;
@@ -109,6 +111,10 @@ private:
     void                    _ShowNode(const std::string& path);
     void                    _FillPane(BGridView* pane, const std::string& node);
     void                    _Learn(const std::string& node, const BMessage& message);
+    /** the buttons that the schema puts beside a field (`beside`): made here, placed by the field */
+    /** a text field without a label of its own, as it stands beside a check box */
+    BTextControl*           _PlainTextControl(const std::string& path, const std::string& text, bool secret, const char* help);
+    std::vector<BButton*>   _BesideButtons(const std::string& node, const std::string& key, const std::string& partner);
     void                    _AddTable(BGridView* pane, int32* row, const std::string& node, const std::string& key, const std::string& name, const std::string& kind);
     void                    _FillTable(ShojiTableControl* control, const Table& table);
     /** makes the rows of the tables again from the working copy; of the tables that have the cell `path`, or all of them if it is empty */
@@ -127,6 +133,8 @@ private:
     void                    _ApplyUpdate(const std::string& path, const BMessage* part);
     /** a bound control was changed by the user: it tells the master of the update (kUpdated), which changes itself from it */
     void                    _Answer(const std::string& path, const std::string& text);
+    /** the revert button of a field was pressed: it answers with the default that the update gave */
+    void                    _AnswerDefault(const std::string& path);
     void                    _TakeAnswer(const BMessage& answer);
     bool                    _IsBound(const std::string& path) const;
     void                    _SetControlText(BView* control, const std::string& text);
@@ -158,6 +166,8 @@ private:
     BString                 fRootLabel;
     std::string             fNode;                      ///< the path of the node that is shown
     std::vector<std::string> fTextPaths;                ///< the text fields of the pane that is shown
+    std::map<std::string, std::string> fBesideFields;           ///< the text fields that stand in the line of a check box (`beside`): by the name of the check box
+    std::map<std::string, std::vector<std::string> > fBeside;   ///< the buttons that stand beside a field of the pane that is shown (`beside`): by the name of the field
     std::vector<Table>      fTables;                    ///< the tables of the pane that is shown
     struct Binding {                                    ///< a control that listens to a command (`bind_to_update_msg`)
         std::string path;                               ///< the control
