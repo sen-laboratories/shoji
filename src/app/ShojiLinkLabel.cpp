@@ -154,12 +154,14 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
     }
 
     if (kind == kTypeLink) {
-        // the type is selected in the FileTypes preferences: `FileTypes -type <MIME type>`. Haiku's FileTypes applies it only when it starts and opens its window; one that runs already keeps the
-        // window as it is (it only stores the type), and a fork of FileTypes can take the type at any time
-        if (!BMimeType::IsValid(value.String())) {
-            (new BAlert("link", "This is not a MIME type.", "OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
-            return B_BAD_VALUE;
+        // the SEN server shows the type in FileTypes: the one of SEN if it is installed and wanted (a setting), else the one of Haiku (-type). One place decides, as for the other links to types.
+        BMessenger server(sen::kServerSignature);
+        if (server.IsValid()) {
+            BMessage open(sen::cmd::kUiOpenType);
+            open.AddString(sen::key::kType, value.String());
+            return server.SendMessage(&open);
         }
+        // (no server: the FileTypes of Haiku shows the type when it starts: FileTypes -type <MIME type>; one that runs already is only brought to the front, see docs/haiku-issues.md)
         const char* arguments[] = { "-type", value.String() };
         status_t result = be_roster->Launch(kFileTypesSignature, 2, arguments);
         if (result == B_ALREADY_RUNNING)
