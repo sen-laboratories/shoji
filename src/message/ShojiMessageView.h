@@ -16,6 +16,7 @@ class BGridView;
 class BOutlineListView;
 class BScrollView;
 class BSplitView;
+class ShojiChangeHandler;
 class ShojiTableControl;
 
 /**
@@ -37,6 +38,7 @@ class ShojiTableControl;
  * The view does not use the application it is in (be_app, its catalog or its resources): it can be loaded into the process of another program, see the spec.
  */
 class ShojiMessageView : public BGroupView {
+    friend class ShojiChangeHandler;
 public:
                             ShojiMessageView(const char* name = "message view");
     virtual                ~ShojiMessageView();
@@ -79,6 +81,7 @@ public:
     virtual status_t        Archive(BMessage* archive, bool deep = true) const;
 
     virtual void            AttachedToWindow();
+    virtual void            DetachedFromWindow();
     virtual void            MessageReceived(BMessage* message);
 
 private:
@@ -87,6 +90,7 @@ private:
         std::string         node;           ///< the node it is in
         std::string         name;           ///< the field
         std::string         kind;           ///< `table` or `properties`
+        uint32              command = 0;    ///< the command of the message that it sends when its selection changes (`update_msg`), 0 if it sends none
     };
 
     struct Known {
@@ -109,14 +113,27 @@ private:
     void                    _FillTable(ShojiTableControl* control, const Table& table);
     /** makes the rows of the tables again from the working copy; of the tables that have the cell `path`, or all of them if it is empty */
     void                    _RefreshTables(const std::string& path);
-    /** the fields that follow the selected row of a table show its cell (and are disabled while no row is selected) */
-    void                    _SyncFollowers();
-    /** the path of the cell and its text, for the field of a follower and the row that is selected in its table; false if there is none */
-    bool                    _FollowedCell(const std::string& fieldPath, std::string* cellPath, std::string* text);
-    bool                    _IsFollower(const std::string& fieldPath) const;
+    // Master and detail (SenSettingsForm.h, `update_msg` and `bind_to_update_msg`): a message command ties a control (a table) to the controls that depend on it.
+    /** the controls of the pane that listen to a command are found in the schema */
+    void                    _RegisterBindings();
+    /** a table tells its observers what it holds (BHandler::SendNotices): the parts of the selected row that are messages, or nothing when no row is selected */
+    void                    _PublishUpdate(const std::string& tablePath);
+    void                    _PublishAll();
+    /** the notice of a master reaches the change handler of the form */
+    void                    _ApplyNotice(const BMessage& notice);
+    /** the bound controls of a command take what the update has for them */
+    void                    _ApplyUpdates(uint32 command, const BMessage& update);
+    /** a bound control takes what the update message has for it (@p part: NULL, nothing: it is emptied and disabled) */
+    void                    _ApplyUpdate(const std::string& path, const BMessage* part);
+    /** a bound control was changed by the user: it tells the master of the update (kUpdated), which changes itself from it */
+    void                    _Answer(const std::string& path, const std::string& text);
+    void                    _TakeAnswer(const BMessage& answer);
+    bool                    _IsBound(const std::string& path) const;
+    void                    _SetControlText(BView* control, const std::string& text);
     void                    _AddField(BGridView* pane, int32* row, const std::string& node, const std::string& key, const Known& field, const BMessage& message);
 
-    void                    _ApplyText(const std::string& path, const std::string& text);
+    /** a control was changed by the user (a text, a check box, a choice, a number, a date...: the value comes as text and is converted to the type of the field) */
+    void                    _ControlChanged(const std::string& path, const std::string& text);
     void                    _ApplyList(const std::string& node, const std::string& name);
     void                    _Refuse(const std::string& path, const std::string& text, status_t status);
     void                    _Show(const std::string& path);
@@ -142,10 +159,17 @@ private:
     std::string             fNode;                      ///< the path of the node that is shown
     std::vector<std::string> fTextPaths;                ///< the text fields of the pane that is shown
     std::vector<Table>      fTables;                    ///< the tables of the pane that is shown
-    struct Follower {                                   ///< a text field that shows a cell of the selected row of a table (`follows_table` in the schema)
-        std::string path, node, table, column;
+    struct Binding {                                    ///< a control that listens to a command (`bind_to_update_msg`)
+        std::string path;                               ///< the control
+        uint32      command = 0;
+        std::string fieldId;                            ///< the name of the part of the message that is meant for it
+        BMessenger  reply;                              ///< where the last update says that the answers go (`reply_to`)
+        BMessage    last;                               ///< the part of the last update: the type of its value is the type of the answer
+        bool        haveSource = false;
     };
-    std::vector<Follower>   fFollowers;
+    std::vector<Binding>    fBindings;
+    ShojiChangeHandler*     fChange = NULL;             ///< the one handler of the form that the masters tell their updates (it is the observer of every table with `update_msg`)
+    std::map<std::string, int32> fTableSelection;       ///< the row that was selected in a table, by its path: kept when the form is made again (the plugin answered with its new state)
     struct Waiting {                                    ///< a button that was pressed and has no answer yet: what its line said before (restored by kActionDone)
         std::string button, line, text, tip;
     };

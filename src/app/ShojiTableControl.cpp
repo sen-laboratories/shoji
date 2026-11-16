@@ -3,8 +3,10 @@
  * SPDX-FileCopyrightText: 2026 SEN Labs e.U.
  */
 #include "ShojiTableControl.h"
+#include "ShojiStateIcon.h"
 
 #include <ControlLook.h>
+#include <Bitmap.h>
 #include <Cursor.h>
 #include <Handler.h>
 #include <ListItem.h>
@@ -19,6 +21,7 @@
 #include <Window.h>
 
 #include <algorithm>
+#include <map>
 #include <math.h>
 #include <string.h>
 
@@ -129,6 +132,19 @@ DrawSpinner(BView* view, BRect box, int32 step, rgb_color ink)
 
 
 /** A row of the list: draws the cells, each as the control that it stands for but that cannot be used. */
+/** The icons of the states, made once for a size (they are drawn for every cell and every redraw). */
+static const BBitmap*
+StateIconFor(const std::string& state, float size)
+{
+    static std::map<std::pair<std::string, int>, BBitmap*> icons;
+    const std::pair<std::string, int> key(state, (int)size);
+    auto found = icons.find(key);
+    if (found == icons.end())
+        found = icons.insert(std::make_pair(key, ShojiStateIcon(state, size))).first;
+    return found->second;
+}
+
+
 class ShojiTableRowItem : public BListItem {
 public:
     ShojiTableRowItem(ShojiTableControl* table) : BListItem(), fTable(table) {}
@@ -203,8 +219,19 @@ public:
                 default:
                 {
                     // (work is going on for the row: a spinner after the text, so that the text does not move when it comes and goes)
-                    const float left = area.left + kPadding;
+                    float left = area.left + kPadding;
                     const float spinnerSize = ceilf(height.ascent + height.descent) - 2;
+                    // (the icon of the state before the text)
+                    if (!cell.state.empty()) {
+                        const float iconSize = ceilf(height.ascent + height.descent) + 2;
+                        if (const BBitmap* icon = StateIconFor(cell.state, iconSize)) {
+                            owner->SetDrawingMode(B_OP_ALPHA);
+                            owner->SetBlendingMode(B_PIXEL_ALPHA, B_ALPHA_OVERLAY);
+                            owner->DrawBitmap(icon, BPoint(left, frame.top + floorf((frame.Height() - iconSize) / 2)));
+                            owner->SetDrawingMode(B_OP_COPY);
+                            left += iconSize + 4;
+                        }
+                    }
                     BString label(cell.text.c_str());
                     owner->TruncateString(&label, B_TRUNCATE_END, area.right - left - kPadding - (cell.busy ? spinnerSize + 6 : 0));
                     owner->SetHighColor(usable || !cell.editable ? text : tint_color(text, B_LIGHTEN_2_TINT));
@@ -282,6 +309,18 @@ public:
                 _BeginDrag(row);
             }
             return;
+        }
+        // (the tool tip of the cell that the pointer is on: the longer text of a status)
+        std::string tip;
+        if (transit != B_EXITED_VIEW) {
+            const int32 row = IndexOf(where);
+            const ShojiTableControl::Cell* cell = row >= 0 ? fTable->CellAt(row, fTable->ColumnAt(where.x, Bounds().Width() + 1)) : NULL;
+            if (cell != NULL)
+                tip = cell->detail;
+        }
+        if (tip != fTip) {
+            fTip = tip;
+            SetToolTip(fTip.empty() ? (const char*)NULL : fTip.c_str());
         }
         BListView::MouseMoved(where, transit, dragMessage);
     }
@@ -414,6 +453,7 @@ private:
 
     ShojiTableControl*  fTable;
     int32               fPressRow = -1;
+    std::string         fTip;               ///< the tool tip that is set now (the detail of the cell under the pointer)
     int32               fPressColumn = -1;
     BPoint              fPressPoint;
     int32               fInsertion = -1;
@@ -1113,7 +1153,8 @@ void ShojiTableControl::_Measure()
                     break;
                 }
                 default:
-                    widest = std::max(widest, std::min(be_plain_font->StringWidth(cell.text.c_str()), em * 30) + kPadding * 2 + 2);
+                    widest = std::max(widest, std::min(be_plain_font->StringWidth(cell.text.c_str()), em * 30) + kPadding * 2 + 2
+                        + (cell.state.empty() ? 0 : ceilf(height.ascent + height.descent) + 6));
                     if (cell.editable) {
                         widest = std::max(widest, em * 12 + kPadding * 2);
                         if (fFlexible < 0)

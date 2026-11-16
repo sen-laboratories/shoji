@@ -58,6 +58,8 @@ public:
         bool                    editable = false;   ///< a cell that only shows (the name of a row) has none
         bool                    enabled = true;     ///< editable now: a cell is disabled while its row does not fit (enabled_when)
         bool                    busy = false;       ///< work is going on for the row: a spinner before the text
+        std::string             state;              ///< `ok`, `info`, `warning` or `error` (SenSettingsForm.h): the icon of the state before the text
+        std::string             detail;             ///< the longer text for the tool tip of the cell
     };
     typedef std::vector<Cell> Row;
 

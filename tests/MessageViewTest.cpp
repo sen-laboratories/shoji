@@ -857,9 +857,10 @@ TestReorder(TestWindow* w)
 
 
 // a table that the schema has and the message has no rows for is shown empty, with the titles of its columns; a cell whose column has `busy_field` shows a spinner while the field of its row is true
-// a text field with `follows_table` shows a cell of the selected row (the key of the server), is disabled while no row is selected, and its edit is the edit of that cell
+// Master and detail by a message: the table has `update_msg`, the field `bind_to_update_msg`. Selecting a row hands the field its part of the row (`value`, `enabled`); with no row it is empty and disabled; the
+// user's edit answers the table, which changes the row (and tells the owner as any cell). The table does not know the field, and the field does not know the table.
 static void
-TestFollower(TestWindow* w)
+TestBinding(TestWindow* w)
 {
     BMessage settings, schema;
     settings.AddString("title", "x");
@@ -867,54 +868,104 @@ TestFollower(TestWindow* w)
         BMessage row;
         row.AddBool("enabled", true);
         row.AddString("name", each);
-        row.AddString("key", strcmp(each, "a") == 0 ? "key-a" : "");
+        row.AddString("status", strcmp(each, "a") == 0 ? "OK" : "No answer");
+        row.AddString("status_state", strcmp(each, "a") == 0 ? "ok" : "error");
+        row.AddString("status_detail", strcmp(each, "a") == 0 ? "Answered in 0.3 s." : "Timed out.");
+        BMessage part;
+        part.AddString("value", strcmp(each, "a") == 0 ? "key-a" : "");
+        part.AddBool("enabled", strcmp(each, "a") == 0);        // (the second server needs no key)
+        row.AddMessage("key", &part);
+        BMessage flag;                                          // (a part with a value of another type: a bool, for a check box)
+        flag.AddBool("value", strcmp(each, "a") == 0);
+        row.AddMessage("flag", &flag);
         settings.AddMessage("servers", &row);
     }
     settings.AddString("api_key", "");
+    settings.AddBool("flag_box", false);
     BMessage table;
     table.AddString(form::kAttrKind, form::kKindTable);
+    table.AddString(form::kAttrUpdateMsg, "TSTu");
     schema.AddMessage("servers", &table);
-    BMessage hiddenKey;
-    hiddenKey.AddBool(form::kAttrHidden, true);
-    schema.AddMessage("servers.key", &hiddenKey);
     BMessage nameColumn;
     nameColumn.AddBool(form::kAttrReadOnly, true);
+    nameColumn.AddInt32(form::kAttrOrder, 0);
     schema.AddMessage("servers.name", &nameColumn);
+    BMessage statusColumn;
+    statusColumn.AddBool(form::kAttrReadOnly, true);
+    statusColumn.AddString(form::kAttrStateField, "status_state");
+    statusColumn.AddString(form::kAttrDetailField, "status_detail");
+    statusColumn.AddInt32(form::kAttrOrder, 1);
+    schema.AddMessage("servers.status", &statusColumn);
+    for (const char* hiddenName : {"servers.status_state", "servers.status_detail"}) {
+        BMessage hidden;
+        hidden.AddBool(form::kAttrHidden, true);
+        schema.AddMessage(hiddenName, &hidden);
+    }
     BMessage field;
     field.AddString(form::kAttrLabel, "API key");
-    field.AddString(form::kAttrFollowsTable, "servers");
-    field.AddString(form::kAttrFollowsColumn, "key");
+    field.AddString(form::kAttrBindToUpdateMsg, "TSTu");
+    field.AddString(form::kAttrFieldId, "key");
     schema.AddMessage("api_key", &field);
+    BMessage flagField;
+    flagField.AddString(form::kAttrLabel, "Flag");
+    flagField.AddString(form::kAttrBindToUpdateMsg, "TSTu");
+    flagField.AddString(form::kAttrFieldId, "flag");
+    schema.AddMessage("flag_box", &flagField);
     w->view->SetData(settings, &schema, NULL);
     w->Settle();
 
     ShojiTableControl* servers = Table(w, "servers");
     BTextControl* key = TextField(w, "api_key");
-    CHECK(servers != NULL && key != NULL && servers->CountRows() == 2 && servers->CountColumns() == 2);		// (enabled, name: the key is not a column)
+    CHECK(servers != NULL && key != NULL && servers->CountRows() == 2 && servers->CountColumns() == 3);		// (enabled, name, status: the key is a message of the row, not a column)
+    // the status column: the icon state and the tool tip text of its row
+    CHECK(servers->CellAt(0, 2)->text == "OK" && servers->CellAt(0, 2)->state == "ok" && servers->CellAt(0, 2)->detail == "Answered in 0.3 s.");
+    CHECK(servers->CellAt(1, 2)->state == "error" && servers->CellAt(1, 2)->detail == "Timed out.");
     // no row selected: nothing in the field, and it cannot be edited
     CHECK(servers->SelectedRow() < 0);
     CHECK(!key->IsEnabled() && strcmp(key->Text(), "") == 0);
-    // a row is selected: its key
+    // a row is selected: its part
     servers->SelectRow(0);
     w->Settle();
     CHECK(key->IsEnabled() && strcmp(key->Text(), "key-a") == 0);
+    // the row says that it needs no key: the field is disabled
     servers->SelectRow(1);
     w->Settle();
-    CHECK(key->IsEnabled() && strcmp(key->Text(), "") == 0);
-    // typing a key changes the cell of the selected row, and tells the owner so
-    w->Reset();
-    w->Type("api_key", "key-b");
-    CHECK(w->lastPath == "servers_01.key" && w->lastValue == "key-b");
-    CHECK(w->Text("servers_01.key") == "key-b" && w->Text("servers_00.key") == "key-a");
-    // back to the first row: its key; the field of the second is kept in the row
+    CHECK(!key->IsEnabled() && strcmp(key->Text(), "") == 0);
+    // typing a key answers the table, which changes the row that it was selected for and tells the owner as it does for a cell
     servers->SelectRow(0);
     w->Settle();
-    CHECK(strcmp(key->Text(), "key-a") == 0);
+    w->Reset();
+    w->Type("api_key", "key-b");
+    CHECK(w->lastPath == "servers_00.key.value" && w->lastValue == "key-b");
+    CHECK(w->Text("servers_00.key.value") == "key-b" && w->Text("servers_01.key.value") == "");
+    CHECK(w->Text("api_key") == "");		// (the field itself keeps nothing in the working copy)
+    // another row and back: what the row holds
     servers->SelectRow(1);
     w->Settle();
+    servers->SelectRow(0);
+    w->Settle();
     CHECK(strcmp(key->Text(), "key-b") == 0);
-    // the field is no value of its own: the owner never hears of `api_key`
+    // the owner never hears of the field itself
     CHECK(w->lastPath != "api_key");
+    // a control of another kind, with a value of another type: the same message, the answer has the type that the update had
+    BCheckBox* flagBox = dynamic_cast<BCheckBox*>(w->view->ControlFor("flag_box"));
+    CHECK(flagBox != NULL && flagBox->Value() == B_CONTROL_ON && flagBox->IsEnabled());		// (row 0 is selected)
+    w->Reset();
+    flagBox->SetValue(B_CONTROL_OFF);
+    flagBox->Invoke();
+    w->Settle();
+    CHECK(w->lastPath == "servers_00.flag.value" && w->lastValue == "false");
+    CHECK(w->Text("servers_00.flag.value") == "false" && w->Text("servers_01.flag.value") == "false");
+    servers->SelectRow(1);
+    w->Settle();
+    servers->SelectRow(0);
+    w->Settle();
+    CHECK(flagBox->Value() == B_CONTROL_OFF);
+    // the form is made again with new data (the plugin answered with a status): the selected row stays
+    BMessage again = w->view->Settings();
+    w->view->SetData(again, &schema, NULL);
+    w->Settle();
+    CHECK(Table(w, "servers")->SelectedRow() == 0 && strcmp(TextField(w, "api_key")->Text(), "key-b") == 0 && TextField(w, "api_key")->IsEnabled());
 }
 
 
@@ -1210,7 +1261,7 @@ int main(int argc, char** argv)
     TestButton(window);
     TestReorder(window);
     TestEmptyAndBusy(window);
-    TestFollower(window);
+    TestBinding(window);
     window->Quit();
     TestNoTree();
 

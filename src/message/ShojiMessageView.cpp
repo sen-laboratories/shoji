@@ -49,34 +49,13 @@
 
 #include "../app/ShojiDateControl.h"
 #include "../app/ShojiListControl.h"
+#include "../app/ShojiStateIcon.h"
 #include "../app/ShojiTableControl.h"
 
 using namespace sen::settings;
 namespace form = sen::settings::form;
 
 namespace {
-
-/** The icon of an alert of the system (the ones that BAlert shows: `dialog-information`, `dialog-warning`, `dialog-error`, vector icons in libbe), as high as @p size; NULL if there is none. */
-BBitmap* AlertIcon(const std::string& state, float size)
-{
-    const char* name = state == form::kStateInfo ? "dialog-information" : state == form::kStateWarning ? "dialog-warning" : state == form::kStateError ? "dialog-error" : NULL;
-    BPath path;
-    if (name == NULL || find_directory(B_SYSTEM_LIB_DIRECTORY, &path) != B_OK || path.Append("libbe.so") != B_OK)
-        return NULL;
-    BFile file(path.Path(), B_READ_ONLY);
-    BResources resources(&file);
-    size_t length = 0;
-    const void* data = resources.LoadResource(B_VECTOR_ICON_TYPE, name, &length);
-    if (data == NULL)
-        return NULL;
-    BBitmap* bitmap = new BBitmap(BRect(0, 0, size - 1, size - 1), B_RGBA32);
-    if (bitmap->InitCheck() != B_OK || BIconUtils::GetVectorIcon((const uint8*)data, length, bitmap) != B_OK) {
-        delete bitmap;
-        return NULL;
-    }
-    return bitmap;
-}
-
 
 /** A view that draws a bitmap (the icon of a status line). */
 class IconView : public BView {
@@ -336,6 +315,30 @@ void Connect(BView* parent, BHandler* target)
 }   // namespace
 
 
+// The one handler of a form that the masters (`update_msg`) tell their updates: a master sends them as notices (BHandler::SendNotices) to its observers, the form is the observer of each,
+// and passes the notice on to the details that listen to its command.
+class ShojiChangeHandler : public BHandler {
+public:
+    ShojiChangeHandler(ShojiMessageView* form)
+        :
+        BHandler("sen:changes"),
+        fForm(form)
+    {
+    }
+
+    virtual void MessageReceived(BMessage* message)
+    {
+        if (message->what == B_OBSERVER_NOTICE_CHANGE)
+            fForm->_ApplyNotice(*message);
+        else
+            BHandler::MessageReceived(message);
+    }
+
+private:
+    ShojiMessageView*   fForm;
+};
+
+
 ShojiMessageView::ShojiMessageView(const char* name)
     :
     BGroupView(name, B_VERTICAL, 0),
@@ -347,6 +350,7 @@ ShojiMessageView::ShojiMessageView(const char* name)
     fPaneHolder(NULL),
     fPane(NULL)
 {
+    fChange = new ShojiChangeHandler(this);
     SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 
     fTree = new BOutlineListView("sen:tree", B_SINGLE_SELECTION_LIST);
@@ -400,14 +404,25 @@ ShojiMessageView::~ShojiMessageView()
     fTree->MakeEmpty();
     for (BListItem* item : items)
         delete item;
+    delete fChange;
 }
 
 
 void ShojiMessageView::AttachedToWindow()
 {
     BGroupView::AttachedToWindow();
+    if (fChange->Looper() == NULL)
+        Window()->AddHandler(fChange);
     fTree->SetTarget(this);
     Connect(fPane, this);
+}
+
+
+void ShojiMessageView::DetachedFromWindow()
+{
+    if (fChange->Looper() != NULL)
+        fChange->Looper()->RemoveHandler(fChange);
+    BGroupView::DetachedFromWindow();
 }
 
 
@@ -504,7 +519,7 @@ void ShojiMessageView::CommitPending()
             continue;
         std::string current;
         if (GetText(fWorking, path, &current) == B_OK && current != control->Text())
-            _ApplyText(path, control->Text());
+            _ControlChanged(path, control->Text());
     }
 
     // a cell of a table that is being edited
@@ -514,7 +529,7 @@ void ShojiMessageView::CommitPending()
         std::string path, text;
         if (control != NULL && control->PendingEdit(&path, &text)) {
             control->EndEdit(false);
-            _ApplyText(path, text);
+            _ControlChanged(path, text);
         }
     }
 }
@@ -560,7 +575,7 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             BTextControl* control;
             if (message->FindString("path", &path) == B_OK
                     && (control = dynamic_cast<BTextControl*>(ControlFor(path))) != NULL)
-                _ApplyText(path, control->Text());
+                _ControlChanged(path, control->Text());
             break;
         }
         case kMsgAction:
@@ -604,7 +619,7 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             BCheckBox* control;
             if (message->FindString("path", &path) == B_OK
                     && (control = dynamic_cast<BCheckBox*>(ControlFor(path))) != NULL)
-                _ApplyText(path, control->Value() == B_CONTROL_ON ? "true" : "false");
+                _ControlChanged(path, control->Value() == B_CONTROL_ON ? "true" : "false");
             break;
         }
         case kMsgChoice:
@@ -612,7 +627,7 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             const char* path;
             const char* value;
             if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK)
-                _ApplyText(path, value);
+                _ControlChanged(path, value);
             break;
         }
         case kMsgList:
@@ -680,11 +695,11 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             if (message->FindString("path", &path) != B_OK || (control = ControlFor(path)) == NULL)
                 break;
             if (BSpinner* spinner = dynamic_cast<BSpinner*>(control))
-                _ApplyText(path, std::to_string(spinner->Value()));
+                _ControlChanged(path, std::to_string(spinner->Value()));
             else if (BDecimalSpinner* decimal = dynamic_cast<BDecimalSpinner*>(control))
-                _ApplyText(path, detail::NumberText(decimal->Value()));
+                _ControlChanged(path, detail::NumberText(decimal->Value()));
             else if (ValueSlider* slider = dynamic_cast<ValueSlider*>(control))
-                _ApplyText(path, slider->ValueText());
+                _ControlChanged(path, slider->ValueText());
             break;
         }
         case kMsgDate:
@@ -692,11 +707,14 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             const char* path;
             ShojiDateControl* control;
             if (message->FindString("path", &path) == B_OK && (control = dynamic_cast<ShojiDateControl*>(ControlFor(path))) != NULL)
-                _ApplyText(path, control->DateText().String());
+                _ControlChanged(path, control->DateText().String());
             break;
         }
         case kMsgRow:
-            _SyncFollowers();
+            _PublishUpdate(message->GetString("table", ""));
+            break;
+        case form::kUpdated:
+            _TakeAnswer(*message);
             break;
         case kMsgTable:
         {
@@ -706,7 +724,7 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             if (message->FindInt32("reorder_from", &from) == B_OK && message->FindInt32("reorder_to", &to) == B_OK) {
                 _ReorderRows(message->GetString("table", ""), from, to);
             } else if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK) {
-                _ApplyText(path, value);
+                _ControlChanged(path, value);
             }
             break;
         }
@@ -873,13 +891,16 @@ void ShojiMessageView::_ShowNode(const std::string& path)
     fTextPaths.clear();
     // (the widths that the user gave the columns of the tables stay, also when the form is made again)
     for (const Table& shownTable : fTables) {
-        if (ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(shownTable.path.c_str())))
+        if (ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(shownTable.path.c_str()))) {
             fTableWidths[shownTable.path] = control->UserWidths();
+            fTableSelection[shownTable.path] = control->SelectedRow();
+        }
     }
     fTables.clear();
-    fFollowers.clear();
+    fBindings.clear();
     fWaitingButtons.clear();
     _FillPane(pane, path);
+    _RegisterBindings();
 
     BView* old = fPane;
     fPaneHolder->GroupLayout()->RemoveView(old);
@@ -890,7 +911,7 @@ void ShojiMessageView::_ShowNode(const std::string& path)
     if (Window() != NULL)
         Connect(pane, this);
     _UpdateEnabled();
-    _SyncFollowers();
+    _PublishAll();
 
     for (int32 i = 0; i < fTree->FullListCountItems(); i++) {
         NodeItem* item = dynamic_cast<NodeItem*>(fTree->FullListItemAt(i));
@@ -1044,7 +1065,7 @@ static BView* MakeStatusLine(const std::string& name, const std::string& text, c
 
     font_height height;
     be_plain_font->GetHeight(&height);
-    BBitmap* icon = state.empty() ? NULL : AlertIcon(state, ceilf(height.ascent + height.descent + height.leading) + 4);
+    BBitmap* icon = state.empty() ? NULL : ShojiStateIcon(state, ceilf(height.ascent + height.descent + height.leading) + 4);
     if (icon == NULL)
         return shown;
 
@@ -1389,20 +1410,6 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         textControl->SetText(text.c_str());
     }
     textControl->SetEnabled(fEditable);
-    const char* followsTable = NULL;
-    const char* followsColumn = NULL;
-    if (attributes.FindString(form::kAttrFollowsTable, &followsTable) == B_OK && followsTable != NULL
-            && attributes.FindString(form::kAttrFollowsColumn, &followsColumn) == B_OK && followsColumn != NULL) {
-        // (it shows a cell of the row that is selected in the table: nothing, and no editing, until one is)
-        Follower follower;
-        follower.path = path;
-        follower.node = node;
-        follower.table = followsTable;
-        follower.column = followsColumn;
-        fFollowers.push_back(follower);
-        textControl->SetText("");
-        textControl->SetEnabled(false);
-    }
     if (help != NULL)
         textControl->SetToolTip(help);
     BLayoutItem* textLabel = textControl->CreateLabelLayoutItem();
@@ -1429,6 +1436,7 @@ void ShojiMessageView::_AddTable(BGridView* pane, int32* row, const std::string&
     entry.node = node;
     entry.name = name;
     entry.kind = kind;
+    entry.command = form::UpdateCommand(attributes.GetString(form::kAttrUpdateMsg, ""));
 
     ShojiTableControl* table = new ShojiTableControl(entry.path.c_str());
     table->SetMessage(new BMessage(kMsgTable));
@@ -1441,7 +1449,14 @@ void ShojiMessageView::_AddTable(BGridView* pane, int32* row, const std::string&
     if (help != NULL)
         table->SetToolTip(help);
     fTables.push_back(entry);
+    // (a table that has a command tells its updates to the change handler of the form)
+    if (entry.command != 0)
+        table->StartWatching(fChange, entry.command);
     _FillTable(table, entry);
+    // (the row that was selected before the form was made again)
+    std::map<std::string, int32>::const_iterator kept = fTableSelection.find(entry.path);
+    if (kept != fTableSelection.end() && kept->second >= 0 && kept->second < table->CountRows())
+        table->SelectRow(kept->second);
 
     BStringView* title = new BStringView("sen:label", label.c_str());
     title->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_TOP));
@@ -1501,6 +1516,13 @@ void ShojiMessageView::_FillTable(ShojiTableControl* control, const Table& table
         const char* rule = NULL;
         if (attributes.FindString(form::kAttrEnabledWhen, &rule) == B_OK && rule != NULL)
             cell.enabled = ConditionHolds(rule, owner);
+        // (the state of the row that the cell tells: the icon before the text, and the longer text as its tool tip)
+        const char* stateField = NULL;
+        if (attributes.FindString(form::kAttrStateField, &stateField) == B_OK && stateField != NULL)
+            GetText(owner, EscapeSegment(stateField), &cell.state);
+        const char* detailField = NULL;
+        if (attributes.FindString(form::kAttrDetailField, &detailField) == B_OK && detailField != NULL)
+            GetText(owner, EscapeSegment(detailField), &cell.detail);
 
         type_code choicesType = 0;
         int32 choiceCount = 0;
@@ -1610,78 +1632,195 @@ void ShojiMessageView::_RefreshTables(const std::string& path)
         if (control != NULL)
             _FillTable(control, table);
     }
-    _SyncFollowers();
+    _PublishAll();
 }
 
 
-bool ShojiMessageView::_IsFollower(const std::string& fieldPath) const
+void ShojiMessageView::_RegisterBindings()
 {
-    for (const Follower& follower : fFollowers) {
-        if (follower.path == fieldPath)
+    fBindings.clear();
+    const std::string key = fNode.empty() ? std::string() : _SchemaKey(fNode);
+    const std::vector<Known>& known = fKnown[fNode];
+    for (size_t i = 0; i < known.size(); i++) {
+        const BMessage attributes = _SchemaOf(ChildPath(key, known[i].name));
+        Binding binding;
+        binding.command = form::UpdateCommand(attributes.GetString(form::kAttrBindToUpdateMsg, ""));
+        if (binding.command == 0)
+            continue;
+        binding.path = ChildPath(fNode, known[i].name);
+        binding.fieldId = attributes.GetString(form::kAttrFieldId, known[i].name.c_str());
+        fBindings.push_back(binding);
+    }
+}
+
+
+bool ShojiMessageView::_IsBound(const std::string& path) const
+{
+    for (const Binding& binding : fBindings) {
+        if (binding.path == path)
             return true;
     }
     return false;
 }
 
 
-bool ShojiMessageView::_FollowedCell(const std::string& fieldPath, std::string* cellPath, std::string* text)
+// A table tells its observers what it holds for the controls that listen to its command: the fields of the selected row that are messages (a part for each control: its field id is their name).
+// The table does not know who listens, and what the controls are; the notice says where the answers go.
+void ShojiMessageView::_PublishUpdate(const std::string& tablePath)
 {
-    for (const Follower& follower : fFollowers) {
-        if (follower.path != fieldPath)
+    for (const Table& table : fTables) {
+        if (table.path != tablePath || table.command == 0)
             continue;
-        ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(ChildPath(follower.node, follower.table).c_str()));
+        BMessage update(table.command);
+        update.AddMessenger(form::kUpdateReplyTo, BMessenger(this));
+        ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(table.path.c_str()));
         BMessage message;
-        if (control == NULL || !NodeIn(fWorking, follower.node, &message))
-            return false;
-        const int32 row = control->SelectedRow();
         type_code type = 0;
         int32 count = 0;
-        if (row < 0 || message.GetInfo(follower.table.c_str(), &type, &count) != B_OK || row >= count)
-            return false;
-        const std::string segment = SegmentFor(follower.table, (size_t)row, (size_t)count, detail::InfoOf(message));
-        BMessage each;
-        if (segment.empty() || message.FindMessage(follower.table.c_str(), row, &each) != B_OK)
-            return false;
-        const std::string cell = SegmentFor(follower.column, 0, 1, detail::InfoOf(each));
-        if (cell.empty())
-            return false;
-        if (GetText(each, EscapeSegment(cell), text) != B_OK)
-            *text = "";
-        *cellPath = ChildPath(ChildPath(follower.node, segment), cell);
-        return true;
+        const int32 row = control != NULL ? control->SelectedRow() : -1;
+        if (row >= 0 && NodeIn(fWorking, table.node, &message) && message.GetInfo(table.name.c_str(), &type, &count) == B_OK && row < count) {
+            BMessage each;
+            if (message.FindMessage(table.name.c_str(), row, &each) == B_OK) {
+                char* name = NULL;
+                type_code have = 0;
+                for (int32 i = 0; each.GetInfo(B_MESSAGE_TYPE, i, &name, &have) == B_OK; i++) {
+                    BMessage part;
+                    if (each.FindMessage(name, &part) == B_OK)
+                        update.AddMessage(name, &part);
+                }
+            }
+        }
+        if (control != NULL && fChange != NULL && fChange->Looper() != NULL)
+            control->SendNotices(table.command, &update);
+        else
+            _ApplyUpdates(table.command, update);       // (a form that is in no window yet: nobody is told, so it is done here)
+        return;
     }
-    return false;
 }
 
 
-void ShojiMessageView::_SyncFollowers()
+void ShojiMessageView::_PublishAll()
 {
-    for (const Follower& follower : fFollowers) {
-        BTextControl* control = dynamic_cast<BTextControl*>(ControlFor(follower.path.c_str()));
-        if (control == NULL)
+    const std::vector<Table> tables = fTables;
+    for (const Table& table : tables) {
+        if (table.command != 0)
+            _PublishUpdate(table.path);
+    }
+}
+
+
+void ShojiMessageView::_ApplyNotice(const BMessage& notice)
+{
+    _ApplyUpdates((uint32)notice.GetInt32(B_OBSERVE_WHAT_CHANGE, 0), notice);
+}
+
+
+void ShojiMessageView::_ApplyUpdates(uint32 command, const BMessage& update)
+{
+    BMessenger replyTo;
+    update.FindMessenger(form::kUpdateReplyTo, &replyTo);
+    for (Binding& binding : fBindings) {
+        if (binding.command != command)
             continue;
-        std::string cellPath, text;
-        const bool found = _FollowedCell(follower.path, &cellPath, &text);
-        if (!found)
-            text = "";
-        control->SetEnabled(found && fEditable);
-        if (text != control->Text())
-            control->SetText(text.c_str());
+        BMessage part;
+        const bool has = update.FindMessage(binding.fieldId.c_str(), &part) == B_OK;
+        binding.haveSource = has && replyTo.IsValid();
+        binding.reply = has ? replyTo : BMessenger();
+        binding.last = has ? part : BMessage();
+        _ApplyUpdate(binding.path, has ? &part : NULL);
+    }
+}
+
+
+void ShojiMessageView::_ApplyUpdate(const std::string& path, const BMessage* part)
+{
+    BView* control = ControlFor(path.c_str());
+    if (control == NULL)
+        return;
+    const bool enabled = part != NULL && part->GetBool(form::kUpdateEnabled, true) && fEditable;
+    std::string text;
+    if (part != NULL)
+        GetText(*part, form::kUpdateValue, &text);
+    _SetControlText(control, text);
+    if (BControl* each = dynamic_cast<BControl*>(control))
+        each->SetEnabled(enabled);
+    else if (BMenuField* menuField = dynamic_cast<BMenuField*>(control))
+        menuField->SetEnabled(enabled);
+}
+
+
+// The user changed a bound control: it tells the master of the last update (the messenger that came with it), with the new value in its part (of the type that it got), and does nothing else.
+// The master changes itself from that, and tells its observers again.
+void ShojiMessageView::_Answer(const std::string& path, const std::string& text)
+{
+    for (const Binding& binding : fBindings) {
+        if (binding.path != path)
+            continue;
+        if (!fEditable || !binding.haveSource) {
+            _PublishAll();
+            return;
+        }
+        BMessage part(binding.last);
+        part.RemoveName(form::kUpdateEnabled);
+        if (SetText(&part, form::kUpdateValue, text) != B_OK) {
+            part.MakeEmpty();
+            part.AddString(form::kUpdateValue, text.c_str());
+        }
+        BMessage answer(form::kUpdated);
+        answer.AddInt32(form::kUpdateCommand, (int32)binding.command);
+        answer.AddMessage(binding.fieldId.c_str(), &part);
+        if (binding.reply.SendMessage(&answer) != B_OK)
+            _PublishAll();
+        return;
+    }
+}
+
+
+// What a table does with an answer: the values go to the field of the row that is selected, into the message of the part, as a change of any cell (checked, put in the working copy, told to the
+// owner). The answer does not say which row: that is the table's own state (the details always show the selected row, and the messages of a looper are handled in order).
+void ShojiMessageView::_TakeAnswer(const BMessage& answer)
+{
+    const uint32 command = (uint32)answer.GetInt32(form::kUpdateCommand, 0);
+    for (const Table& table : fTables) {
+        if (table.command != command || command == 0)
+            continue;
+        ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(table.path.c_str()));
+        const int32 row = control != NULL ? control->SelectedRow() : -1;
+        BMessage message;
+        type_code type = 0;
+        int32 count = 0;
+        if (row < 0 || !NodeIn(fWorking, table.node, &message) || message.GetInfo(table.name.c_str(), &type, &count) != B_OK || row >= count)
+            return;
+        const std::string segment = SegmentFor(table.name, (size_t)row, (size_t)count, detail::InfoOf(message));
+        if (segment.empty())
+            return;
+        const std::string rowPath = ChildPath(table.node, segment);
+        char* name = NULL;
+        type_code have = 0;
+        for (int32 i = 0; answer.GetInfo(B_MESSAGE_TYPE, i, &name, &have) == B_OK; i++) {
+            BMessage part;
+            if (answer.FindMessage(name, &part) != B_OK)
+                continue;
+            char* key = NULL;
+            type_code kind = 0;
+            for (int32 k = 0; part.GetInfo(B_ANY_TYPE, k, &key, &kind) == B_OK; k++) {
+                std::string text;
+                if (GetText(part, EscapeSegment(key), &text) == B_OK)
+                    _ControlChanged(ChildPath(ChildPath(rowPath, name), key), text);
+            }
+        }
+        return;
     }
 }
 
 
 // A value that was typed or chosen: checked against its type and the range of the schema, put into the working copy, and told to the target. What is shown is
 // the value as it is stored (007 is 7). A value that does not fit is refused and the control shows the old one.
-void ShojiMessageView::_ApplyText(const std::string& path, const std::string& text)
+void ShojiMessageView::_ControlChanged(const std::string& path, const std::string& text)
 {
-    // a field that follows the selected row of a table: the cell of that row is what changes
-    if (_IsFollower(path)) {
-        std::string cellPath, cellText;
-        if (fEditable && _FollowedCell(path, &cellPath, &cellText) && cellText != text)
-            _ApplyText(cellPath, text);
-        else
-            _SyncFollowers();
+    // a control that listens to a master: what it holds is the master's, so it answers the master instead of changing the form
+    if (_IsBound(path)) {
+        _Answer(path, text);
         return;
     }
     if (!fEditable) {
@@ -1788,7 +1927,13 @@ void ShojiMessageView::_Show(const std::string& path)
     std::string text;
     if (control == NULL || GetText(fWorking, path, &text) != B_OK)
         return;
+    _SetControlText(control, text);
+}
 
+
+// A control shows a value as text (whatever its kind is: a field, a check box, a spinner, a date, a group of radio buttons).
+void ShojiMessageView::_SetControlText(BView* control, const std::string& text)
+{
     if (BTextControl* textControl = dynamic_cast<BTextControl*>(control)) {
         if (text != textControl->Text())
             textControl->SetText(text.c_str());
