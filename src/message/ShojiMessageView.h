@@ -14,6 +14,7 @@
 
 class BButton;
 class BTextControl;
+namespace sen { class FilterPopUpMenu; }
 class BGridView;
 class BOutlineListView;
 class BScrollView;
@@ -82,6 +83,8 @@ public:
     static BArchivable*     Instantiate(BMessage* archive);
     virtual status_t        Archive(BMessage* archive, bool deep = true) const;
 
+    /** the number of fields that have a list that follows the text (`popup`), for tests */
+    int32                   CountPopupMenus() const { return (int32)fFilterMenus.size(); }
     virtual void            AttachedToWindow();
     virtual void            DetachedFromWindow();
     virtual void            MessageReceived(BMessage* message);
@@ -143,6 +146,9 @@ private:
     /** a control was changed by the user (a text, a check box, a choice, a number, a date...: the value comes as text and is converted to the type of the field) */
     void                    _ControlChanged(const std::string& path, const std::string& text);
     void                    _ApplyList(const std::string& node, const std::string& name);
+    /** the lists of the `popup` fields follow their text fields (the pane must be in the window) */
+    void                    _AttachPopups();
+    void                    _DeletePopups();
     void                    _Refuse(const std::string& path, const std::string& text, status_t status);
     void                    _Show(const std::string& path);
     /** enables and disables the controls of the shown node whose schema says `enabled_when` (a field of the same message that has a value) */
@@ -167,6 +173,16 @@ private:
     std::string             fNode;                      ///< the path of the node that is shown
     std::vector<std::string> fTextPaths;                ///< the text fields of the pane that is shown
     std::map<std::string, std::string> fBesideFields;           ///< the text fields that stand in the line of a check box (`beside`): by the name of the check box
+    /** the text fields of kind `popup` of the pane that is shown: they get the list that follows the text when the pane is in the window */
+    struct Popup {
+        std::string                 path;
+        std::vector<std::string>    values;
+        bool                        allowCustom = true;
+        bool                        allowMultiple = false;
+        BTextControl*               control = NULL;
+    };
+    std::vector<Popup>      fPopups;
+    std::vector<sen::FilterPopUpMenu*>  fFilterMenus;
     std::map<std::string, std::vector<std::string> > fBeside;   ///< the buttons that stand beside a field of the pane that is shown (`beside`): by the name of the field
     std::vector<Table>      fTables;                    ///< the tables of the pane that is shown
     struct Binding {                                    ///< a control that listens to a command (`bind_to_update_msg`)

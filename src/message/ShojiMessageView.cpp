@@ -37,6 +37,8 @@
 #include <ToolTip.h>
 #include <Window.h>
 
+#include <sen/SenFilterMenu.h>
+
 #include <algorithm>
 #include <math.h>
 #include <set>
@@ -90,6 +92,7 @@ enum {
     kMsgDate    = 'MVda',       // a date: path
     kMsgSelect  = 'MVse',       // a node of the tree was selected
     kMsgTable   = 'MVtb',       // a cell of a table was changed: path, value
+    kMsgPopup   = 'MVpu',       // a value was picked from the list that follows a text field: path, value
     kMsgRow     = 'MVrw',       // another row of a table was selected: table
     kMsgAction  = 'MVac'        // a button (kind `button`) was pressed: path
 };
@@ -404,6 +407,7 @@ ShojiMessageView::~ShojiMessageView()
     fTree->MakeEmpty();
     for (BListItem* item : items)
         delete item;
+    _DeletePopups();
     delete fChange;
 }
 
@@ -415,6 +419,8 @@ void ShojiMessageView::AttachedToWindow()
         Window()->AddHandler(fChange);
     fTree->SetTarget(this);
     Connect(fPane, this);
+    if (fFilterMenus.empty())
+        _AttachPopups();
 }
 
 
@@ -721,6 +727,18 @@ void ShojiMessageView::MessageReceived(BMessage* message)
         case form::kUpdated:
             _TakeAnswer(*message);
             break;
+        case kMsgPopup:
+        {
+            // (a value of the list: it is in the field already, as typing it would have put it there)
+            const char* path;
+            const char* value;
+            if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK) {
+                if (BTextControl* control = dynamic_cast<BTextControl*>(ControlFor(path)))
+                    control->SetText(value);
+                _ControlChanged(path, value);
+            }
+            break;
+        }
         case kMsgTable:
         {
             const char* path;
@@ -908,13 +926,16 @@ void ShojiMessageView::_ShowNode(const std::string& path)
     _RegisterBindings();
 
     BView* old = fPane;
+    _DeletePopups();
     fPaneHolder->GroupLayout()->RemoveView(old);
     old->RemoveSelf();
     delete old;
     fPane = pane;
     fPaneHolder->GroupLayout()->AddView(pane);
-    if (Window() != NULL)
+    if (Window() != NULL) {
         Connect(pane, this);
+        _AttachPopups();
+    }
     _UpdateEnabled();
     _PublishAll();
 
@@ -951,7 +972,8 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
         // the text fields that a button shows beside itself (`shows`): they have no line of their own
         std::set<std::string> besideButton;
         fBeside.clear();
-        fBesideFields.clear();
+        fBesideFields.clear();        fPopups.clear();
+
         for (size_t i = 0; i < known.size(); i++) {
             const BMessage attributes = _SchemaOf(ChildPath(key, known[i].name));
             const char* kindOfField = NULL;
@@ -1388,8 +1410,8 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         return;
     }
 
-    // a choice of the schema: a menu
-    if (hasChoices) {
+    // a choice of the schema: a menu (a `popup` is a text field with a list that follows the text)
+    if (hasChoices && kind != form::kKindPopup) {
         BPopUpMenu* menu = new BPopUpMenu(path.c_str());
         menu->SetRadioMode(true);
         menu->SetLabelFromMarked(true);
@@ -1468,6 +1490,16 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     textControl->SetEnabled(fEditable);
     if (help != NULL)
         textControl->SetToolTip(help);
+    if (kind == form::kKindPopup && hasChoices) {
+        Popup popup;
+        popup.path = path;
+        for (int32 i = 0; i < choiceCount; i++)
+            popup.values.push_back(attributes.GetString(form::kAttrChoices, i, ""));
+        popup.allowCustom = attributes.GetBool(form::kAttrAllowCustom, true);
+        popup.allowMultiple = attributes.GetBool(form::kAttrAllowMultiple, false);
+        popup.control = textControl;
+        fPopups.push_back(popup);
+    }
     BLayoutItem* textLabel = textControl->CreateLabelLayoutItem();
     BLayoutItem* textItem = textControl->CreateTextViewLayoutItem();
     textItem->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_UNSET));
@@ -1494,6 +1526,36 @@ BTextControl* ShojiMessageView::_PlainTextControl(const std::string& path, const
     if (help != NULL)
         control->SetToolTip(help);
     return control;
+}
+
+
+// The lists that follow the text of the `popup` fields: made when the pane is in the window (the list attaches to the text view, which needs it).
+void ShojiMessageView::_AttachPopups()
+{
+    if (Window() == NULL)
+        return;
+    for (const Popup& popup : fPopups) {
+        if (popup.control == NULL || popup.control->Window() == NULL)
+            continue;
+        BMessage* chosen = new BMessage(kMsgPopup);
+        chosen->AddString("path", popup.path.c_str());
+        sen::FilterPopUpMenu* menu = new sen::FilterPopUpMenu(popup.path.c_str(), chosen);
+        menu->SetValues(popup.values);
+        menu->SetAllowCustom(popup.allowCustom);
+        menu->SetAllowMultiple(popup.allowMultiple);
+        menu->SetTargetForChoice(this);
+        menu->AttachTo(popup.control->TextView());
+        fFilterMenus.push_back(menu);
+    }
+}
+
+
+// (the lists end while the text fields that they follow are still there)
+void ShojiMessageView::_DeletePopups()
+{
+    for (sen::FilterPopUpMenu* menu : fFilterMenus)
+        delete menu;
+    fFilterMenus.clear();
 }
 
 

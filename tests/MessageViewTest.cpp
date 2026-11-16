@@ -1019,6 +1019,40 @@ TestBinding(TestWindow* w)
 
 
 static void
+TestPopup(TestWindow* w)
+{
+    BMessage settings, schema;
+    settings.AddString("who", "Jane");
+    settings.AddString("other", "x");
+    BMessage popup;
+    popup.AddString(form::kAttrKind, form::kKindPopup);
+    popup.AddString(form::kAttrChoices, "Jane Roe <jane@example.org>");
+    popup.AddString(form::kAttrChoices, "Max Muster <max@example.org>");
+    schema.AddMessage("who", &popup);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+    BTextControl* who = TextField(w, "who");
+    CHECK(who != NULL && strcmp(who->Text(), "Jane") == 0 && w->view->CountPopupMenus() == 1);		// (a text field with a list that follows it)
+    // typed text is taken as in any text field (other text is allowed)
+    w->Reset();
+    w->Type("who", "Somebody Else");
+    CHECK(w->Text("who") == "Somebody Else" && w->changed == 1);
+    // a value of the list: the field has it, and the owner is told
+    w->Reset();
+    BMessage pick('MVpu');
+    pick.AddString("path", "who");
+    pick.AddString("value", "Max Muster <max@example.org>");
+    w->view->MessageReceived(&pick);
+    w->Settle();
+    CHECK(strcmp(who->Text(), "Max Muster <max@example.org>") == 0 && w->Text("who") == "Max Muster <max@example.org>" && w->changed == 1 && w->lastPath == "who");
+    // the form made again: one list again, not two
+    w->view->SetData(w->view->Settings(), &schema, NULL);
+    w->Settle();
+    CHECK(w->view->CountPopupMenus() == 1);
+}
+
+
+static void
 TestEmptyAndBusy(TestWindow* w)
 {
     BMessage settings, schema;
@@ -1311,6 +1345,7 @@ int main(int argc, char** argv)
     TestReorder(window);
     TestEmptyAndBusy(window);
     TestBinding(window);
+    TestPopup(window);
     window->Quit();
     TestNoTree();
 
