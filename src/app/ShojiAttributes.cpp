@@ -3,6 +3,7 @@
  * SPDX-FileCopyrightText: 2024-2026 SEN Labs e.U.
  */
 
+#include <MimeType.h>
 #include <CheckBox.h>
 #include <Font.h>
 #include <InterfaceDefs.h>
@@ -51,6 +52,7 @@ bool IsSupportedType(type_code type)
 {
     switch (type) {
         case B_STRING_TYPE:
+        case B_MIME_STRING_TYPE:
         case B_BOOL_TYPE:
         case B_INT8_TYPE:
         case B_INT16_TYPE:
@@ -177,6 +179,7 @@ static status_t FormatValue(type_code type, const uint8* data, ssize_t size, BSt
 {
     switch (type) {
         case B_STRING_TYPE:
+        case B_MIME_STRING_TYPE:		// (a MIME type is a string: the semantic type META:TYPE)
             text->SetTo((const char*)data, strnlen((const char*)data, size));
             return B_OK;
         case B_BOOL_TYPE:
@@ -305,6 +308,14 @@ static status_t ParseValue(type_code type, const char* text, std::vector<uint8>*
         case B_STRING_TYPE:
             Append(data, text, strlen(text) + 1);
             return B_OK;
+        case B_MIME_STRING_TYPE: {
+            // a MIME type (type/subtype): what is no valid one is not stored; the string is that of the type
+            BMimeType mime(text);
+            if (mime.InitCheck() != B_OK || mime.Type() == NULL)
+                return B_BAD_VALUE;
+            Append(data, mime.Type(), strlen(mime.Type()) + 1);
+            return B_OK;
+        }
         case B_BOOL_TYPE: {
             bool value;
             if (strcmp(text, "1") == 0 || strcasecmp(text, "true") == 0)

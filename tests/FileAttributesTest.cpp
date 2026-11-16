@@ -5,13 +5,15 @@
 
 // The attributes of a file as the form of a type without attributes of its own (a Markdown file) shows them: those that Shoji can edit, not the ones of the system,
 // the file manager and SEN, not raw data, not those that the type declares already. Build and run on Haiku:
-//   g++ -std=c++20 -Isrc/app -I/boot/home/config/non-packaged/develop/headers -I/boot/system/develop/headers/private/shared tests/FileAttributesTest.cpp src/app/ShojiAttributes.cpp src/app/ShojiListControl.cpp src/app/ShojiDateControl.cpp -o /tmp/fileattr-test -lbe -lshared && /tmp/fileattr-test
+//   g++ -std=c++20 -Isrc/app -I/boot/home/config/non-packaged/develop/headers -I/boot/system/develop/headers/private/shared tests/FileAttributesTest.cpp src/app/ShojiAttributes.cpp src/app/ShojiListControl.cpp src/app/ShojiDateControl.cpp src/app/ShojiDurationControl.cpp -o /tmp/fileattr-test -lbe -lshared && /tmp/fileattr-test
 
 #include "ShojiAttributes.h"
 
 #include <File.h>
+#include <fs_attr.h>
 
 #include <stdio.h>
+#include <string.h>
 
 static int sFailures = 0;
 static int sChecks = 0;
@@ -84,7 +86,25 @@ int main()
     shoji::AttributesOfFile(bare, &none);
     CHECK(none.empty());
 
+    // a MIME string (the semantic type, META:TYPE) is read and written as a string, and stays a MIME string
+    BFile typed("/tmp/shoji-fileattr-mime", B_READ_WRITE | B_CREATE_FILE | B_ERASE_FILE);
+    const char* event = "entity/x-vnd.sen-labs.entity.event";
+    typed.WriteAttr("META:TYPE", B_MIME_STRING_TYPE, 0, event, strlen(event) + 1);
+    CHECK(shoji::IsSupportedType(B_MIME_STRING_TYPE));
+    ShojiAttribute meta;
+    meta.name = "META:TYPE";
+    BString text;
+    CHECK(shoji::LoadAttribute(typed, &meta, &text) == B_OK && meta.type == B_MIME_STRING_TYPE && text == event);
+    CHECK(shoji::StoreAttribute(typed, meta, "entity/x-vnd.sen-labs.entity.calendar") == B_OK);
+    attr_info info;
+    CHECK(typed.GetAttrInfo("META:TYPE", &info) == B_OK && info.type == B_MIME_STRING_TYPE);
+    CHECK(shoji::LoadAttribute(typed, &meta, &text) == B_OK && text == "entity/x-vnd.sen-labs.entity.calendar");
+    CHECK(shoji::StoreAttribute(typed, meta, "not a mime type") == B_BAD_VALUE);
+    CHECK(shoji::LoadAttribute(typed, &meta, &text) == B_OK && text == "entity/x-vnd.sen-labs.entity.calendar");	// (unchanged)
+    CHECK(shoji::StoreAttribute(typed, meta, "") == B_OK && typed.GetAttrInfo("META:TYPE", &info) == B_ENTRY_NOT_FOUND);
+
     remove(path);
+    remove("/tmp/shoji-fileattr-mime");
     remove("/tmp/shoji-fileattr-bare");
     printf("%d checks, %d failed\n", sChecks, sFailures);
     return sFailures == 0 ? 0 : 1;

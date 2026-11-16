@@ -21,6 +21,7 @@
 #include "ShojiDuration.h"
 #include "ShojiDurationControl.h"
 #include "ShojiGenericFormView.h"
+#include "ShojiLinkLabel.h"
 #include "ShojiListControl.h"
 
 /*
@@ -71,7 +72,10 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
             // label and field in two columns, aligned over all rows; a field is wide enough to edit in
             textControl->TextView()->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
             textControl->TextView()->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
-            layout->AddItem(textControl->CreateLabelLayoutItem(), 0, row);
+            if (shoji::LinkKindOf(attr.name.String()) != shoji::kNoLink)
+                layout->AddView(new ShojiLinkLabel(attr.name.String(), attr.label.String()), 0, row);		// (a link while the field has a text: the type opens in FileTypes)
+            else
+                layout->AddItem(textControl->CreateLabelLayoutItem(), 0, row);
             layout->AddItem(textControl->CreateTextViewLayoutItem(), 1, row);
         } else {
             layout->AddView(control, 0, row, 2, 1);

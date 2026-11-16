@@ -10,6 +10,7 @@
 #include <Font.h>
 #include <LayoutUtils.h>
 #include <Messenger.h>
+#include <MimeType.h>
 #include <Node.h>
 #include <Roster.h>
 #include <TextControl.h>
@@ -24,6 +25,7 @@
 
 #include <string.h>
 
+static const char* const kFileTypesSignature = "application/x-vnd.Haiku-FileTypes";
 static const char* const kPlaceEnricherSignature = "application/x-vnd.sen-plugin.sen-labs.place-enricher";
 
 
@@ -84,6 +86,8 @@ LinkKindOf(const char* attribute)
         return kMailLink;
     if (strcmp(attribute, "schema:homeLocation") == 0)
         return kPlaceLink;
+    if (strcmp(attribute, sen::attr::kType) == 0)
+        return kTypeLink;
     return kNoLink;
 }
 
@@ -147,6 +151,22 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
         value.Prepend("mailto:");
         BUrl url(value, true);
         return url.OpenWithPreferredApplication();
+    }
+
+    if (kind == kTypeLink) {
+        // the type is selected in the FileTypes preferences: `FileTypes -type <MIME type>`. Haiku's FileTypes applies it only when it starts and opens its window; one that runs already keeps the
+        // window as it is (it only stores the type), and a fork of FileTypes can take the type at any time
+        if (!BMimeType::IsValid(value.String())) {
+            (new BAlert("link", "This is not a MIME type.", "OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
+            return B_BAD_VALUE;
+        }
+        const char* arguments[] = { "-type", value.String() };
+        status_t result = be_roster->Launch(kFileTypesSignature, 2, arguments);
+        if (result == B_ALREADY_RUNNING)
+            result = B_OK;
+        if (result != B_OK)
+            (new BAlert("link", "The FileTypes preferences could not be started.", "OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
+        return result;
     }
 
     if (kind == kPlaceLink) {

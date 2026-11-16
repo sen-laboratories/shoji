@@ -15,7 +15,8 @@ enum LinkKind {
     kNoLink,
     kWebLink,       ///< the text is an address: it opens in the web browser of the user
     kMailLink,      ///< the text is an e-mail address: a new message to it is started in the mail program of the user
-    kPlaceLink      ///< the text is the name of a place: the enricher of places looks it up, makes the place and relates the file to it
+    kPlaceLink,     ///< the text is the name of a place: the enricher of places looks it up, makes the place and relates the file to it
+    kTypeLink       ///< the text is a MIME type (the semantic type, META:TYPE): it is shown in the FileTypes preferences
 };
 
 /** The attributes that have a link label (a later version can read this from the ontology). */
