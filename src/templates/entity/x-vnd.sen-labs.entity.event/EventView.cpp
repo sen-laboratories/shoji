@@ -17,6 +17,18 @@ EventView::EventView() : FormView("Event View") {
     AddField("schema:endDate", "End")->SetToolTip(kTimeHelp);
     // the clock time of the duration is shown by the control for durations, which takes the place of this field when the file is shown
     AddField("schema:duration", "Duration");
+    // how it repeats, in words (the rule itself is in SEN:recurrence); the other occurrences are the relation Series
+    AddField("schema:repeatFrequency", "Repeats");
+    AddField("schema:location", "Location")->SetToolTip("Where the event takes place. Click the label to look the place up and relate the event to it.");
+    AddField("schema:organizer", "Organizer");
+    // the people of the event, one entry each with the role and the answer in brackets (the people themselves are the relation Attendee); the file is the source of it
+    AddField("schema:attendee", "Attendees");
+    AddField("schema:eventStatus", "Status");
+    AddField("schema:eventAttendanceMode", "Attendance");
+    // links: the page of the event and the online meeting (click the label)
+    AddField("schema:url", "URL");
+    AddField("SEN:meetingUrl", "Meeting URL");
+    AddField("SEN:meetingType", "Meeting Type");
     Finish();
 }
 

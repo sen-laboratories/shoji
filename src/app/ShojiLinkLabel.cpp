@@ -80,11 +80,11 @@ FindLinkedPlace(const entry_ref& file, const BString& text, entry_ref* place)
 LinkKind
 LinkKindOf(const char* attribute)
 {
-    if (strcmp(attribute, "foaf:homepage") == 0)
+    if (strcmp(attribute, "foaf:homepage") == 0 || strcmp(attribute, "schema:url") == 0 || strcmp(attribute, "SEN:meetingUrl") == 0)
         return kWebLink;
     if (strcmp(attribute, "foaf:mbox") == 0)
         return kMailLink;
-    if (strcmp(attribute, "schema:homeLocation") == 0)
+    if (strcmp(attribute, "schema:homeLocation") == 0 || strcmp(attribute, "schema:location") == 0)
         return kPlaceLink;
     if (strcmp(attribute, sen::attr::kType) == 0)
         return kTypeLink;
