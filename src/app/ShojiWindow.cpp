@@ -531,6 +531,67 @@ bool ShojiWindow::HasChanged(const char* name)
 }
 
 // stores the value of the control in the attribute and shows what has been stored.
+// --- the end of a thing is not before its start: a day, or a day with a time of day ("2026-12-24", "2026-12-24 18:30:00"), as the seconds of a calendar without time zones (no summer time: a length is kept)
+
+namespace {
+
+long long DaysFromCivil(long long y, unsigned m, unsigned d)
+{
+    y -= m <= 2;
+    const long long era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = (unsigned)(y - era * 400);
+    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (long long)doe - 719468;
+}
+
+void CivilFromDays(long long z, int* year, int* month, int* day)
+{
+    z += 719468;
+    const long long era = (z >= 0 ? z : z - 146096) / 146097;
+    const unsigned doe = (unsigned)(z - era * 146097);
+    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const long long y = (long long)yoe + era * 400;
+    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const unsigned mp = (5 * doy + 2) / 153;
+    *day = (int)(doy - (153 * mp + 2) / 5 + 1);
+    *month = (int)(mp < 10 ? mp + 3 : mp - 9);
+    *year = (int)(y + (*month <= 2));
+}
+
+/** false if the text is no day (a fuzzy value, empty): then nothing is compared */
+bool ParseMoment(const BString& text, long long* seconds, bool* hasTime)
+{
+    int year, month, day, hour = 0, minute = 0, second = 0, used = 0;
+    if (sscanf(text.String(), "%d-%d-%d%n", &year, &month, &day, &used) < 3 || month < 1 || month > 12 || day < 1 || day > 31)
+        return false;
+    *hasTime = false;
+    if (text.String()[used] == ' ') {
+        if (sscanf(text.String() + used + 1, "%d:%d:%d", &hour, &minute, &second) < 2)
+            return false;
+        *hasTime = true;
+    } else if (text.String()[used] != '\0')
+        return false;
+    *seconds = DaysFromCivil(year, (unsigned)month, (unsigned)day) * 86400 + hour * 3600 + minute * 60 + second;
+    return true;
+}
+
+BString FormatMoment(long long seconds, bool withTime)
+{
+    long long days = seconds >= 0 ? seconds / 86400 : -((-seconds + 86399) / 86400);
+    const long long rest = seconds - days * 86400;
+    int year, month, day;
+    CivilFromDays(days, &year, &month, &day);
+    BString text;
+    if (withTime)
+        text.SetToFormat("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, (int)(rest / 3600), (int)(rest % 3600 / 60), (int)(rest % 60));
+    else
+        text.SetToFormat("%04d-%02d-%02d", year, month, day);
+    return text;
+}
+
+}	// namespace
+
 status_t ShojiWindow::Commit(const char* name)
 {
     fDirty.erase(name);
@@ -547,6 +608,35 @@ status_t ShojiWindow::Commit(const char* name)
     fValues.FindString(name, &stored);
     if (text == stored)
         return B_OK;
+
+    // the end is not before the start: an end that is typed before the start becomes the start; a start that is moved past the end takes the end with it (it keeps the length that the
+    // event had, as a calendar does)
+    BString followedEnd;
+    const bool isStart = strcmp(name, "schema:startDate") == 0;
+    if (isStart || strcmp(name, "schema:endDate") == 0) {
+        BView* otherView = FindControl(isStart ? "schema:endDate" : "schema:startDate");
+        BString other;
+        long long mine, theirs;
+        bool mineTime, theirsTime;
+        if (otherView != NULL && shoji::GetControlValue(otherView, &other) && ParseMoment(text, &mine, &mineTime) && ParseMoment(other, &theirs, &theirsTime)
+                && (isStart ? theirs < mine : mine < theirs)) {
+            if (isStart) {
+                BString oldStart, oldEnd;
+                long long was, wasEnd;
+                bool wasTime, wasEndTime;
+                fValues.FindString("schema:startDate", &oldStart);
+                fValues.FindString("schema:endDate", &oldEnd);
+                const long long length = ParseMoment(oldStart, &was, &wasTime) && ParseMoment(oldEnd, &wasEnd, &wasEndTime) && wasEnd >= was ? wasEnd - was : 0;
+                followedEnd = FormatMoment(mine + length, mineTime || theirsTime);
+                shoji::SetControlValue(otherView, followedEnd.String());
+            } else {
+                text = other;
+                shoji::SetControlValue(view, text.String());
+                if (text == stored)
+                    return B_OK;
+            }
+        }
+    }
 
     BNode node(&fRef);
     status_t result = node.InitCheck();
@@ -570,6 +660,10 @@ status_t ShojiWindow::Commit(const char* name)
             fValues.AddString(name, current);
     }
     UpdateRevertButton();
+
+    // the end that moved with the start is stored as it is typed
+    if (!followedEnd.IsEmpty())
+        Commit("schema:endDate");
 
     return B_OK;
 }
