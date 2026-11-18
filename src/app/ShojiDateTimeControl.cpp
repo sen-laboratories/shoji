@@ -20,7 +20,11 @@
 #include <TimeFormat.h>
 #include <Window.h>
 
+#include <ControlLook.h>
+#include <math.h>
 #include <stdlib.h>
+
+#include <algorithm>
 
 #include <stdio.h>
 #include <string.h>
@@ -32,6 +36,82 @@ static const uint32 kTimeChanged = 'sdtT';
 static const uint32 kAllDayChanged = 'sdtA';
 static const uint32 kOpenCalendar = 'sdtO';
 static const uint32 kDayPicked = 'sdtP';
+
+// --- the time of day: the field of the system does not look or act disabled (the sections take the mouse and the keys and look the same), so a time that does not count (all day) is dimmed and left alone
+
+class ShojiTimeEdit : public BPrivate::TimeEdit {
+public:
+    ShojiTimeEdit(const char* name, uint32 sections, BMessage* message)
+        :
+        BPrivate::TimeEdit(name, sections, message)
+    {
+    }
+
+    virtual void Draw(BRect updateRect)
+    {
+        BPrivate::TimeEdit::Draw(updateRect);
+        if (!IsEnabled()) {
+            PushState();
+            SetDrawingMode(B_OP_ALPHA);
+            SetBlendingMode(B_PIXEL_ALPHA, B_ALPHA_OVERLAY);
+            rgb_color panel = ui_color(B_PANEL_BACKGROUND_COLOR);
+            panel.alpha = 150;
+            SetHighColor(panel);
+            FillRect(Bounds());
+            PopState();
+        }
+    }
+
+    virtual void MouseDown(BPoint where)
+    {
+        if (IsEnabled())
+            BPrivate::TimeEdit::MouseDown(where);
+    }
+
+    virtual void KeyDown(const char* bytes, int32 numBytes)
+    {
+        if (IsEnabled())
+            BPrivate::TimeEdit::KeyDown(bytes, numBytes);
+    }
+
+    virtual void MakeFocus(bool focused = true)
+    {
+        BPrivate::TimeEdit::MakeFocus(focused && IsEnabled());
+    }
+};
+
+// --- the button that opens the calendar: a small button with the filled arrow that the date field has (BControlLook::DrawArrowShape(), as in the lists of Tracker)
+
+class PickButton : public BButton {
+public:
+    PickButton(const char* name, BMessage* message)
+        :
+        BButton(name, "", message)
+    {
+        // as wide as the arrow needs, and as high as a text field: not a tall button next to it
+        const float height = ceilf(be_plain_font->Size() * 1.4f) + 8;
+        SetExplicitMinSize(BSize(ceilf(be_plain_font->Size() * 1.6f) + 6, height));
+        SetExplicitMaxSize(BSize(ceilf(be_plain_font->Size() * 1.6f) + 6, height));
+        SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_MIDDLE));
+    }
+
+    virtual void Draw(BRect updateRect)
+    {
+        BButton::Draw(updateRect);
+        const BRect bounds = Bounds();
+        const float side = std::max(4.0f, floorf(be_plain_font->Size() * 0.7f));
+        const float x = floorf(bounds.left + (bounds.Width() + 1 - side) / 2);
+        const float y = floorf(bounds.top + (bounds.Height() + 1 - side) / 2);
+        const rgb_color base = ui_color(B_PANEL_BACKGROUND_COLOR);
+        float tint = IsEnabled() ? B_DARKEN_4_TINT : B_DARKEN_2_TINT;
+        if (base.red + base.green + base.blue <= 128 * 3)
+            tint = IsEnabled() ? B_LIGHTEN_2_TINT : B_DARKEN_1_TINT;
+        PushState();
+        BRect arrow(x, y, x + side - 1, y + side - 1);
+        be_control_look->DrawArrowShape(this, arrow, updateRect, base, BControlLook::B_DOWN_ARROW, 0, tint);
+        PopState();
+    }
+};
 
 // --- the calendar that drops down from the date, as the one of the Deskbar (the clock) has: a month with its days, to be picked from, and the buttons for the month and the year
 
@@ -201,7 +281,8 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
     fSetting(false),
     fEnabled(true)
 {
-    SetViewColor(B_TRANSPARENT_COLOR);
+    // (the control draws nothing itself: its background is the panel's, or what was under it (the calendar that dropped down, a window that was over the form) stays)
+    SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
     BGroupLayout* layout = new BGroupLayout(B_HORIZONTAL, B_USE_DEFAULT_SPACING);
     layout->SetInsets(0, 0, 0, 0);
     SetLayout(layout);
@@ -221,16 +302,14 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
             halfDay = halfDay || fields[i] == B_DATE_ELEMENT_AM_PM;
     }
     free(fields);
-    fTime = new BPrivate::TimeEdit("time", halfDay ? 3 : 2, new BMessage(kTimeChanged));
+    fTime = new ShojiTimeEdit("time", halfDay ? 3 : 2, new BMessage(kTimeChanged));
     fTime->SetTime(9, 0, 0);
 
     fAllDay = new BCheckBox("allday", "All day", new BMessage(kAllDayChanged));
     fAllDay->SetValue(B_CONTROL_ON);
 
     // the calendar that drops down from the date (a day is picked there as in the clock of the Deskbar)
-    fPick = new BButton("pick", "\xE2\x96\xBE", new BMessage(kOpenCalendar));
-    fPick->SetExplicitMinSize(BSize(be_plain_font->StringWidth("MM"), B_SIZE_UNSET));
-    fPick->SetExplicitMaxSize(BSize(be_plain_font->StringWidth("MM"), B_SIZE_UNSET));
+    fPick = new PickButton("pick", new BMessage(kOpenCalendar));
 
     layout->AddView(fDate);
     layout->AddView(fPick);
