@@ -25,6 +25,7 @@
 
 #include "ShojiAttributes.h"
 #include "ShojiDateControl.h"
+#include "ShojiDateTimeControl.h"
 #include "ShojiDuration.h"
 #include "ShojiDurationControl.h"
 #include "ShojiListControl.h"
@@ -485,6 +486,10 @@ bool GetControlValue(BView* view, BString* text)
         *text = date->DateText();
         return true;
     }
+    if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view)) {
+        *text = dateTime->DateTimeText();
+        return true;
+    }
     return false;
 }
 
@@ -510,7 +515,13 @@ bool SetControlValue(BView* view, const char* text)
     if (BCheckBox* checkBox = dynamic_cast<BCheckBox*>(view)) {
         checkBox->SetValue(strcmp(text, "1") == 0 ? B_CONTROL_ON : B_CONTROL_OFF);
         return true;
-    }    if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
+    }
+    if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view)) {
+        // (a value that is not a day or a time (a fuzzy one) stays out: the control only holds what it can show)
+        dateTime->SetDateTimeText(text);
+        return true;
+    }
+    if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
         // (a value that is not a date stays out: the control only holds dates)
         if (ShojiDateControl::IsDateText(text) && date->DateText() != text)
             date->SetDateText(text);

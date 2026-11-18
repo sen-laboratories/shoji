@@ -27,6 +27,7 @@
 #include <sen/SenTimeAttributes.h>
 
 #include "ShojiDateControl.h"
+#include "ShojiDateTimeControl.h"
 #include "ShojiDurationControl.h"
 #include "ShojiListControl.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceMapView.h"
@@ -231,6 +232,28 @@ static BView* UpgradeToDate(BView* view, const ShojiAttribute& attr, const char*
     BGridLayout* grid = parent != NULL ? dynamic_cast<BGridLayout*>(parent->GetLayout()) : NULL;
     // (a day that may be missing, the birthday, has the control with no date in it)
     const bool empty = text[0] == '\0' && ShojiDateControl::IsDayAttribute(attr.name.String());
+    // the start and the end of something (an event) are a day or a time of day: the control for both. What is no day or time (a fuzzy value: 1994-05~, 202X) stays a text field
+    if (field != NULL && grid != NULL && attr.type == B_TIME_TYPE && sen::timeattr::Find(attr.name.String()) != NULL
+            && (text[0] == '\0' || ShojiDateTimeControl::IsDateTimeText(text))) {
+        if (forms.find(grid) == forms.end())
+            ReadFormRows(grid, &forms[grid]);
+        auto row = forms[grid].rowOfField.find(view);
+        if (row == forms[grid].rowOfField.end())
+            return view;
+        const int32 rowIndex = row->second;
+        ShojiDateTimeControl* dateTime = new ShojiDateTimeControl(attr.name.String());
+        dateTime->SetDateTimeText(text);
+        dateTime->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+        if (!grid->RemoveView(field)) {
+            delete dateTime;
+            return view;
+        }
+        grid->AddView(dateTime, 1, rowIndex);
+        forms[grid].rowOfField.erase(view);
+        forms[grid].rowOfField[dateTime] = rowIndex;
+        delete field;
+        return dateTime;
+    }
     if (field == NULL || grid == NULL || attr.type != B_TIME_TYPE || !(ShojiDateControl::IsDateText(text) || empty) || sen::timeattr::Find(attr.name.String()) != NULL)
         return view;
     if (forms.find(grid) == forms.end())

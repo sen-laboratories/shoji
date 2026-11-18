@@ -18,6 +18,7 @@
 #include <sen/SenTimeAttributes.h>
 
 #include "ShojiDateControl.h"
+#include "ShojiDateTimeControl.h"
 #include "ShojiDuration.h"
 #include "ShojiDurationControl.h"
 #include "ShojiGenericFormView.h"
@@ -63,6 +64,10 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
             label->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_TOP));
             layout->AddView(label, 0, row);
             layout->AddView(list, 1, row);
+        } else if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(control)) {
+            dateTime->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+            layout->AddView(new BStringView("label", attr.label.String()), 0, row);
+            layout->AddView(dateTime, 1, row);
         } else if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(control)) {
             // the date control has no label of its own: the label on the left, the control as wide as it needs
             date->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
@@ -104,6 +109,12 @@ BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, co
         ShojiListControl* list = new ShojiListControl(attr.name.String(), attr.list.separator);
         list->SetListText(text);
         control = list;
+    } else if (attr.type == B_TIME_TYPE && sen::timeattr::Find(attr.name.String()) != NULL
+            && (text[0] == '\0' || ShojiDateTimeControl::IsDateTimeText(text))) {
+        // the start and the end of something: a day, with a time of day if there is one
+        ShojiDateTimeControl* dateTime = new ShojiDateTimeControl(attr.name.String());
+        dateTime->SetDateTimeText(text);
+        control = dateTime;
     } else if (attr.type == B_TIME_TYPE && (ShojiDateControl::IsDateText(text) || (text[0] == '\0' && ShojiDateControl::IsDayAttribute(attr.name.String())))
             && sen::timeattr::Find(attr.name.String()) == NULL) {
         // a date (midnight UTC), as in the form of a message: the date control of the Time preferences; a time of day, or no value, is typed (except a day that may be missing, a birthday: the

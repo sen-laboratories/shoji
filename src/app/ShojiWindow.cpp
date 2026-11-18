@@ -46,6 +46,7 @@
 #include "ShojiGenericFormView.h"
 #include "ShojiTemplateView.h"
 #include "ShojiDateControl.h"
+#include "ShojiDateTimeControl.h"
 #include "ShojiListControl.h"
 
 static const char* kAttrThumbnail = "Media:Thumbnail";
@@ -472,6 +473,10 @@ void ShojiWindow::ConnectControls()
         } else if (BCheckBox* checkBox = dynamic_cast<BCheckBox*>(view)) {
             checkBox->SetMessage(commit);
             checkBox->SetTarget(this);
+        } else if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view)) {
+            // every change of the day or the time is complete
+            dateTime->SetMessage(commit);
+            dateTime->SetTarget(this);
         } else if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
             // every change of the date is complete
             date->SetMessage(commit);
