@@ -21,6 +21,7 @@
 #include <limits>
 #include <type_traits>
 
+#include <sen/SenRecurrence.h>
 #include <sen/SenTimeAttributes.h>
 
 #include "ShojiAttributes.h"
@@ -422,7 +423,12 @@ status_t StoreAttribute(BNode& node, const ShojiAttribute& attr, const char* tex
     // an empty value is no value: do not leave empty attributes behind
     if (value.IsEmpty() && attr.type != B_BOOL_TYPE) {
         status_t status = node.RemoveAttr(attr.name.String());
-        return status == B_ENTRY_NOT_FOUND ? B_OK : status;
+        if (status == B_ENTRY_NOT_FOUND)
+            status = B_OK;
+        // how a thing repeats: no words say that it does not repeat (SenRecurrence.h)
+        if (status == B_OK && sen::recurrence::IsWordsAttribute(attr.name.String()))
+            sen::recurrence::SyncFromText(node, "");
+        return status;
     }
 
     std::vector<uint8> data;
@@ -434,7 +440,12 @@ status_t StoreAttribute(BNode& node, const ShojiAttribute& attr, const char* tex
     ssize_t written = node.WriteAttr(attr.name.String(), attr.type, 0, data.data(), data.size());
     if (written < 0)
         return (status_t)written;
-    return written == (ssize_t)data.size() ? B_OK : B_IO_ERROR;
+    if (written != (ssize_t)data.size())
+        return B_IO_ERROR;
+    // how a thing repeats is said in words (Repeats) and as a rule that programs read: the rule follows the words (SenRecurrence.h)
+    if (sen::recurrence::IsWordsAttribute(attr.name.String()))
+        sen::recurrence::SyncFromText(node, value.String());
+    return B_OK;
 }
 
 // --- snapshots
