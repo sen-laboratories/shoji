@@ -24,6 +24,11 @@
 #include <sen/SenOntoSpatial.h>
 
 #include <string.h>
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiLinkLabel"
+
 
 static const char* const kFileTypesSignature = "application/x-vnd.Haiku-FileTypes";
 static const char* const kPlaceEnricherSignature = "application/x-vnd.sen-plugin.sen-labs.place-enricher";
@@ -129,7 +134,7 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
             value.Prepend("https://");
         BUrl url(value, true);
         if (!url.IsValid()) {
-            (new BAlert("link", "This is not an address that a web browser can open.", "OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
+            (new BAlert("link", B_TRANSLATE("This is not an address that a web browser can open."), B_TRANSLATE("OK"), NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
             return B_BAD_VALUE;
         }
         return url.OpenWithPreferredApplication();
@@ -145,7 +150,7 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
             value.Remove(0, 7);
         value.Trim();
         if (value.FindFirst('@') <= 0) {
-            (new BAlert("link", "This is not an e-mail address.", "OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
+            (new BAlert("link", B_TRANSLATE("This is not an e-mail address."), B_TRANSLATE("OK"), NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
             return B_BAD_VALUE;
         }
         value.Prepend("mailto:");
@@ -167,7 +172,7 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
         if (result == B_ALREADY_RUNNING)
             result = B_OK;
         if (result != B_OK)
-            (new BAlert("link", "The FileTypes preferences could not be started.", "OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
+            (new BAlert("link", B_TRANSLATE("The FileTypes preferences could not be started."), B_TRANSLATE("OK"), NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
         return result;
     }
 
@@ -178,7 +183,7 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
         // the enricher of places is asked for the place of that name (it chooses if there are several, as it does for any file), makes it a file of its own and relates this one to it
         entry_ref plugin;
         if (be_roster->FindApp(kPlaceEnricherSignature, &plugin) != B_OK) {
-            (new BAlert("link", "The place enricher (SEN Spaces) is not installed: it looks the place up. Install the package sen_plugin_place_enricher.", "OK", NULL, NULL,
+            (new BAlert("link", B_TRANSLATE("The place enricher (SEN Spaces) is not installed: it looks the place up. Install the package sen_plugin_place_enricher."), B_TRANSLATE("OK"), NULL, NULL,
                 B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
             return B_NAME_NOT_FOUND;
         }

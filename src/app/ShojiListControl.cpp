@@ -24,6 +24,11 @@
 #include <sen/SenList.h>
 
 #include "ShojiListControl.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiListControl"
+
 
 // ---- the editor: a text field that lies over the value that is edited
 
@@ -160,8 +165,8 @@ private:
     void ShowMenu(BPoint screenWhere)
     {
         BPopUpMenu* menu = new BPopUpMenu("values", false, false);
-        BMenuItem* add = new BMenuItem("Add" B_UTF8_ELLIPSIS, new BMessage(ShojiListControl::kAddValue));
-        BMenuItem* remove = new BMenuItem("Delete", new BMessage(ShojiListControl::kDeleteValue));
+        BMenuItem* add = new BMenuItem(B_TRANSLATE("Add" B_UTF8_ELLIPSIS), new BMessage(ShojiListControl::kAddValue));
+        BMenuItem* remove = new BMenuItem(B_TRANSLATE("Delete"), new BMessage(ShojiListControl::kDeleteValue));
         add->SetEnabled(fEditable);
         remove->SetEnabled(fEditable && CurrentSelection() >= 0);
         menu->AddItem(add);
@@ -191,7 +196,7 @@ ShojiListControl::ShojiListControl(const char* name, char separator, const char*
 
     fList = new ShojiValueList();
     fList->SetInvocationMessage(new BMessage(kEditValue));
-    fList->SetToolTip("Double-click a value to change it, the empty part (or + ) to add one.\nDelete removes the selected value.");
+    fList->SetToolTip(B_TRANSLATE("Double-click a value to change it, the empty part (or + ) to add one.\nDelete removes the selected value."));
     BScrollView* scroll = new BScrollView("scroll", fList, 0, false, true, B_FANCY_BORDER);
     fScroll = scroll;
     _SizeForValues();

@@ -39,6 +39,8 @@
 #include "ShojiApp.h"
 #include "ShojiLinkLabel.h"
 #include <sen/SenAttrValues.h>
+#include <sen/SenRepeatPicker.h>
+#include <sen/SenRecurrence.h>
 #include <sen/SenTimeAttributes.h>
 
 #include "ShojiWindow.h"
@@ -48,6 +50,11 @@
 #include "ShojiDateControl.h"
 #include "ShojiDateTimeControl.h"
 #include "ShojiListControl.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiWindow"
+
 
 static const char* kAttrThumbnail = "Media:Thumbnail";
 static const ssize_t kMaxThumbnailSize = 4 * 1024 * 1024;
@@ -57,7 +64,7 @@ static const uint32 kMsgExternalChoice = 'SHxc';
 
 ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BRect(BPoint(320.0, 128.0), BSize(580.0, 576.0)),
-    "Shoji Entity Viewer",
+    B_TRANSLATE("Shoji Entity Viewer"),
     B_DOCUMENT_WINDOW,
     B_AUTO_UPDATE_SIZE_LIMITS),    // (the window is never smaller than its form needs; no B_WILL_ACCEPT_FIRST_CLICK: a click in the window would pass through without activating it)
     fRef(*ref),
@@ -140,7 +147,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     panel->AddChild(entity);
 
     // the changes are stored as they are made: this takes them back, to the file as it was opened
-    fRevertButton = new BButton("revert", "Revert", new BMessage(kMsgRevert));
+    fRevertButton = new BButton("revert", B_TRANSLATE("Revert"), new BMessage(kMsgRevert));
     fRevertButton->SetEnabled(false);
     BGroupView* buttons = new BGroupView(B_HORIZONTAL, 0);
     buttons->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
@@ -317,6 +324,36 @@ void ShojiWindow::MessageReceived(BMessage* message)
                 Commit(name);
             break;
         }
+        case SHOJI_MSG_REPEAT_PICKER:
+        {
+            BView* field = FindControl(sen::recurrence::kWords);
+            BPoint where(100, 100);
+            if (field != NULL)
+                where = field->ConvertToScreen(BPoint(field->Bounds().left, field->Bounds().bottom + 2));
+            BMessage done(SHOJI_MSG_REPEAT_DONE);
+            sen::RepeatPickerLabels labels;
+            labels.title = B_TRANSLATE("Repeat");
+            labels.every = B_TRANSLATE("Every");
+            labels.units[0] = B_TRANSLATE("days");
+            labels.units[1] = B_TRANSLATE("weeks");
+            labels.units[2] = B_TRANSLATE("months");
+            labels.units[3] = B_TRANSLATE("years");
+            labels.ends = B_TRANSLATE("Ends");
+            labels.never = B_TRANSLATE("Never");
+            labels.after = B_TRANSLATE("After");
+            labels.times = B_TRANSLATE("times");
+            labels.on = B_TRANSLATE_COMMENT("On", "the last day of a repeat");
+            labels.doesNotRepeat = B_TRANSLATE("Doesn't repeat");
+            labels.ok = B_TRANSLATE("OK");
+            labels.cancel = B_TRANSLATE("Cancel");
+            labels.more = B_TRANSLATE("This repeat says more than can be set here; OK replaces it.");
+            new sen::RepeatPickerWindow(where, fRef, BMessenger(this), &done, labels);
+            break;
+        }
+        case SHOJI_MSG_REPEAT_DONE:
+            // (the picker wrote the words and the rule into the file: the field shows them)
+            ExternalChange(sen::recurrence::kWords);
+            break;
         case kMsgRevert:
             Revert();
             break;
@@ -385,15 +422,15 @@ void ShojiWindow::FrameResized(float width, float height)
 BMenuBar* ShojiWindow::BuildMenuBar()
 {
     BMenuBar* bar = new BMenuBar("menubar");
-    BMenu* menu = new BMenu("File");
-    BMenuItem* about = new BMenuItem("About Shoji", new BMessage(B_ABOUT_REQUESTED));
+    BMenu* menu = new BMenu(B_TRANSLATE("File"));
+    BMenuItem* about = new BMenuItem(B_TRANSLATE("About Shoji"), new BMessage(B_ABOUT_REQUESTED));
     about->SetTarget(be_app);
     menu->AddItem(about);
-    BMenuItem* settings = new BMenuItem("Settings" B_UTF8_ELLIPSIS, new BMessage(kMsgShowSettings), ',');
+    BMenuItem* settings = new BMenuItem(B_TRANSLATE("Settings" B_UTF8_ELLIPSIS), new BMessage(kMsgShowSettings), ',');
     settings->SetTarget(be_app);
     menu->AddItem(settings);
     menu->AddSeparatorItem();
-    BMenuItem* quit = new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED), 'Q');
+    BMenuItem* quit = new BMenuItem(B_TRANSLATE("Quit"), new BMessage(B_QUIT_REQUESTED), 'Q');
     quit->SetTarget(be_app);
     menu->AddItem(quit);
     bar->AddItem(menu);
@@ -512,6 +549,9 @@ void ShojiWindow::ConnectControls()
                 sen::FilterPopUpMenu* menu = new sen::FilterPopUpMenu(attr.name.String(), chosen);
                 menu->SetValues(values);
                 menu->SetTargetForChoice(this);
+                // how a thing repeats: the list ends with `Custom...`, the window for every N weeks, the weekdays and how long
+                if (sen::recurrence::IsWordsAttribute(attr.name.String()))
+                    menu->SetExtraItem(B_TRANSLATE("Custom" B_UTF8_ELLIPSIS), BMessenger(this), BMessage(SHOJI_MSG_REPEAT_PICKER));
                 menu->AttachTo(textControl->TextView());
                 fFilterMenus.push_back(menu);
             }
@@ -836,12 +876,13 @@ void ShojiWindow::AskAboutExternalChange(const ShojiAttribute& attr, const char*
     theirs.Truncate(60);
     yours.Truncate(60);
 
-    BString msg("'");
-    msg << attr.label << "' was changed outside of Shoji while you are editing it.\n\n"
-        << "New value:  " << (theirs.IsEmpty() ? "(removed)" : theirs.String()) << "\n"
-        << "Your value:  " << (yours.IsEmpty() ? "(empty)" : yours.String());
+    BString msg(B_TRANSLATE("'%label%' was changed outside of Shoji while you are editing it.\n\n"
+        "New value:  %theirs%\nYour value:  %yours%"));
+    msg.ReplaceAll("%label%", attr.label.String());
+    msg.ReplaceAll("%theirs%", theirs.IsEmpty() ? B_TRANSLATE("(removed)") : theirs.String());
+    msg.ReplaceAll("%yours%", yours.IsEmpty() ? B_TRANSLATE("(empty)") : yours.String());
 
-    BAlert* alert = new BAlert("Attribute changed", msg.String(), "Keep my change", "Use the new value", NULL,
+    BAlert* alert = new BAlert("Attribute changed", msg.String(), B_TRANSLATE("Keep my change"), B_TRANSLATE("Use the new value"), NULL,
         B_WIDTH_AS_USUAL, B_WARNING_ALERT);
     alert->SetShortcut(0, B_ESCAPE);
 
@@ -947,12 +988,14 @@ status_t ShojiWindow::GetMimeTypeForRef(const entry_ref* ref, char* mimeType) {
 void ShojiWindow::ShowUserError(const char *title, const char* message, status_t errorCode)
 {
     BString msg(message);
-    msg.Append("\nDetail: ").Append(strerror(errorCode));
+    BString detail(B_TRANSLATE("Detail: %detail%"));
+    detail.ReplaceAll("%detail%", strerror(errorCode));
+    msg.Append("\n").Append(detail);
 
     BAlert* alert = new BAlert(
         title,
         msg.String(),
-        "Oh no.");
+        B_TRANSLATE("Oh no."));
 
     alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
     alert->Go();
@@ -961,14 +1004,17 @@ void ShojiWindow::ShowUserError(const char *title, const char* message, status_t
 // does not block the window, it may be shown while the window is left.
 void ShojiWindow::ShowUserEditError(const ShojiAttribute& attr, status_t errorCode)
 {
-    BString msg("Could not store the value of '");
-    msg << attr.label << "'.\n";
+    BString msg(B_TRANSLATE("Could not store the value of '%label%'.\n"));
+    msg.ReplaceAll("%label%", attr.label.String());
     if (errorCode == B_BAD_VALUE)
-        msg << "The value is not valid for this attribute, the previous one has been restored.";
-    else
-        msg << "Detail: " << strerror(errorCode);
+        msg << B_TRANSLATE("The value is not valid for this attribute, the previous one has been restored.");
+    else {
+        BString detail(B_TRANSLATE("Detail: %detail%"));
+        detail.ReplaceAll("%detail%", strerror(errorCode));
+        msg << detail;
+    }
 
-    BAlert* alert = new BAlert("Error storing value", msg.String(), "Oh no.");
+    BAlert* alert = new BAlert("Error storing value", msg.String(), B_TRANSLATE("Oh no."));
     alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
     alert->Go(NULL);
 }

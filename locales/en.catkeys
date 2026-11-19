@@ -1,0 +1,154 @@
+1	English	application/x-vnd.sen-labs.shoji	2887774810
+File	ShojiMessageWindow		File
+The value is not valid for this attribute, the previous one has been restored.	ShojiWindow		The value is not valid for this attribute, the previous one has been restored.
+About Shoji	ShojiWindow		About Shoji
+Same as	PersonView		Same as
+Revert to defaults	ShojiSettingsWindow		Revert to defaults
+Quit	ShojiMessageWindow		Quit
+Copy path key	ShojiMessageInspector		Copy path key
+times	ShojiWindow		times
+Keywords	PaperView		Keywords
+Location	PersonView		Location
+Attendees	EventView		Attendees
+Groups	PersonView		Groups
+Address	PlaceView		Address
+'%label%' was changed outside of Shoji while you are editing it.\n\nNew value:  %theirs%\nYour value:  %yours%	ShojiWindow		'%label%' was changed outside of Shoji while you are editing it.\n\nNew value:  %theirs%\nYour value:  %yours%
+The file could not be written.	ShojiMessageWindow		The file could not be written.
+Shoji is the default application of 1 file type.	ShojiSettingsWindow		Shoji is the default application of 1 file type.
+Job title	PersonView		Job title
+Description	PersonView		Description
+Address	ContactView		Address
+Subjects	BookView		Subjects
+Type	PlaceView		Type
+(empty)	ShojiWindow		(empty)
+Abstract	PaperView		Abstract
+Phone	PersonView		Phone
+E-Mail	PersonView		E-Mail
+Open access	PaperView		Open access
+Date	BookView		Date
+Location	EventView		Location
+Defaults	ShojiMessageWindow		Defaults
+This file has no attributes to show.	ShojiGenericFormView		This file has no attributes to show.
+OK	ShojiWindow		OK
+Ends	ShojiWindow		Ends
+Description	EventView		Description
+DOI	PaperView		DOI
+Name	PlaceView		Name
+A type that has no template gets a form made from its attributes.	ShojiSettingsWindow		A type that has no template gets a form made from its attributes.
+Edit	ShojiMessageInspector		Edit
+Oh no.	ShojiApp		Oh no.
+Given name	PersonView		Given name
+This repeat says more than can be set here; OK replaces it.	ShojiWindow		This repeat says more than can be set here; OK replaces it.
+Copy value	ShojiMessageInspector		Copy value
+End	EventView		End
+E-Mail	ContactView		E-Mail
+Repeats	EventView		Repeats
+years	ShojiWindow		years
+Settings…	ShojiWindow		Settings…
+Name	ContactView		Name
+OK	ShojiLinkLabel		OK
+All day	ShojiDateTimeControl		All day
+About Shoji	ShojiMessageWindow		About Shoji
+Delete	ShojiMessageInspector		Delete
+ZIP code	ContactView		ZIP code
+Same as	PlaceView		Same as
+Title	EventView		Title
+Quit	ShojiWindow		Quit
+This is not an e-mail address.	ShojiLinkLabel		This is not an e-mail address.
+Revert	ShojiMessageWindow		Revert
+Language	BookView		Language
+OK	ShojiSettingsWindow		OK
+Hours, minutes and seconds: 01:55:00	ShojiDurationControl		Hours, minutes and seconds: 01:55:00
+Photo license	PersonView		Photo license
+Publisher	BookView		Publisher
+Published in	PaperView		Published in
+All unassociated file types	ShojiSettingsWindow		All unassociated file types
+Meeting Type	EventView		Meeting Type
+Date	PaperView		Date
+The place enricher (SEN Spaces) is not installed: it looks the place up. Install the package sen_plugin_place_enricher.	ShojiLinkLabel		The place enricher (SEN Spaces) is not installed: it looks the place up. Install the package sen_plugin_place_enricher.
+Pages	BookView		Pages
+Shoji is the default application of %count% file types.	ShojiSettingsWindow		Shoji is the default application of %count% file types.
+Company	PersonView		Company
+Picture credit	PlaceView		Picture credit
+Page	PaperView		Page
+The value is not valid for '%field%': %detail%\nThe previous value has been restored.	ShojiMessageWindow		The value is not valid for '%field%': %detail%\nThe previous value has been restored.
+Delete	ShojiListControl		Delete
+Shoji is not the default application of any file type.	ShojiSettingsWindow		Shoji is not the default application of any file type.
+No file types	ShojiSettingsWindow		No file types
+months	ShojiWindow		months
+Region	PlaceView		Region
+Failed to resolve input file.	ShojiApp		Failed to resolve input file.
+Keep my change	ShojiWindow		Keep my change
+This is not an address that a web browser can open.	ShojiLinkLabel		This is not an address that a web browser can open.
+Oh no.	ShojiMessageWindow		Oh no.
+There is nothing to set here.	ShojiMessageView		There is nothing to set here.
+Custom…	ShojiWindow		Custom…
+Shoji Settings	ShojiSettingsWindow		Shoji Settings
+Other names	PlaceView		Other names
+Never	ShojiWindow		Never
+Start	EventView		Start
+Mobile	ContactView		Mobile
+Status	EventView		Status
+Attendance	EventView		Attendance
+Kind of work	PaperView		Kind of work
+The FileTypes preferences could not be started.	ShojiLinkLabel		The FileTypes preferences could not be started.
+Title	BookView		Title
+Where the event takes place. Click the label to look the place up and relate the event to it.	EventView		Where the event takes place. Click the label to look the place up and relate the event to it.
+Country	ContactView		Country
+(removed)	ShojiWindow		(removed)
+Authors	BookView		Authors
+Event Type	EventView		Event Type
+ORCID	PersonView		ORCID
+Nickname	PersonView		Nickname
+Organizer	EventView		Organizer
+Photo credit	PersonView		Photo credit
+Groups	ContactView		Groups
+On	ShojiWindow	the last day of a repeat	On
+Shoji opens what it is asked to open (the SEN menus, Open With).	ShojiSettingsWindow		Shoji opens what it is asked to open (the SEN menus, Open With).
+weeks	ShojiWindow		weeks
+Picture license	PlaceView		Picture license
+Detail: %detail%	ShojiWindow		Detail: %detail%
+Every	ShojiWindow		Every
+Citations	PaperView		Citations
+PDF	PaperView		PDF
+View	ShojiMessageWindow		View
+Full name	PersonView		Full name
+Longitude	PlaceView		Longitude
+Title	PaperView		Title
+Family name	PersonView		Family name
+Country	PlaceView		Country
+Inspector	ShojiMessageWindow		Inspector
+days	ShojiWindow		days
+Cancel	ShojiWindow		Cancel
+Add…	ShojiListControl		Add…
+Associate Shoji with:	ShojiSettingsWindow		Associate Shoji with:
+Shoji Entity Viewer	ShojiWindow		Shoji Entity Viewer
+Web site	PlaceView		Web site
+After	ShojiWindow		After
+Settings…	ShojiMessageWindow		Settings…
+City	PlaceView		City
+File	ShojiWindow		File
+(read-only)	ShojiMessageWindow		(read-only)
+All file types with a template, too	ShojiSettingsWindow		All file types with a template, too
+Authors	PaperView		Authors
+Latitude	PlaceView		Latitude
+Homepage	PersonView		Homepage
+Birthday	PersonView		Birthday
+Revert	ShojiWindow		Revert
+Company	ContactView		Company
+Double-click a value to change it, the empty part (or + ) to add one.\nDelete removes the selected value.	ShojiListControl		Double-click a value to change it, the empty part (or + ) to add one.\nDelete removes the selected value.
+(type of attribute '%name%' is not supported)	ShojiGenericFormView		(type of attribute '%name%' is not supported)
+Repeat	ShojiWindow		Repeat
+Form	ShojiMessageWindow		Form
+ISBN	BookView		ISBN
+Duration	EventView		Duration
+City	ContactView		City
+Use the new value	ShojiWindow		Use the new value
+Elevation	PlaceView		Elevation
+URL	EventView		URL
+Could not store the value of '%label%'.\n	ShojiWindow		Could not store the value of '%label%'.\n
+Oh no.	ShojiWindow		Oh no.
+Meeting URL	EventView		Meeting URL
+Replaces the application of those types, e.g. People for the contacts.	ShojiSettingsWindow		Replaces the application of those types, e.g. People for the contacts.
+Doesn't repeat	ShojiWindow		Doesn't repeat
+Description	PlaceView		Description

@@ -30,6 +30,11 @@
 #include <string.h>
 
 #include "ShojiDateControl.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiDateTimeControl"
+
 
 static const uint32 kDateChanged = 'sdtD';
 static const uint32 kTimeChanged = 'sdtT';
@@ -321,7 +326,7 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
     fTime = new ShojiTimeEdit("time", halfDay ? 3 : 2, new BMessage(kTimeChanged));
     fTime->SetTime(9, 0, 0);
 
-    fAllDay = new BCheckBox("allday", "All day", new BMessage(kAllDayChanged));
+    fAllDay = new BCheckBox("allday", B_TRANSLATE("All day"), new BMessage(kAllDayChanged));
     fAllDay->SetValue(B_CONTROL_ON);
 
     // the calendar that drops down from the date (a day is picked there as in the clock of the Deskbar)

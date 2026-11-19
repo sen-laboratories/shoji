@@ -23,6 +23,10 @@
 #define SHOJI_FIELD_ATTR        "shoji:attr"
 // sent by the list of common values that follows a text field (sen::FilterPopUpMenu): a value was picked; it is in the field already and is stored
 #define SHOJI_MSG_CHOSEN        'SHcn'
+// the last item of the list of Repeats (`Custom...`): the window for a repeat cycle is opened (sen::RepeatPickerWindow), which writes the words and the rule itself
+#define SHOJI_MSG_REPEAT_PICKER 'SHrp'
+// sent by that window after it wrote the attributes: the field shows them
+#define SHOJI_MSG_REPEAT_DONE   'SHrd'
 
 /*
  * One attribute of the MIME type of the edited file, as declared in its attribute info

@@ -33,6 +33,11 @@
 #include "../templates/entity/x-vnd.sen-labs.entity.person/PersonView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.event/EventView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceView.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiApp"
+
 
 const char* kApplicationSignature = "application/x-vnd.sen-labs.shoji";
 
@@ -241,8 +246,8 @@ void ShojiApp::RefsReceived(BMessage *message)
 
     if (opened == 0) {
         BAlert* alert = new BAlert("Error launching Shoji",
-            "Failed to resolve input file.",
-            "Oh no.");
+            B_TRANSLATE("Failed to resolve input file."),
+            B_TRANSLATE("Oh no."));
         alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
         alert->Go();
 

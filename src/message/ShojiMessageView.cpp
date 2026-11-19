@@ -53,6 +53,11 @@
 #include "../app/ShojiListControl.h"
 #include "../app/ShojiStateIcon.h"
 #include "../app/ShojiTableControl.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiMessageView"
+
 
 using namespace sen::settings;
 namespace form = sen::settings::form;
@@ -1049,7 +1054,7 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
     }
 
     if (row == 0) {
-        BStringView* note = new BStringView("sen:note", "There is nothing to set here.");
+        BStringView* note = new BStringView("sen:note", B_TRANSLATE("There is nothing to set here."));
         note->SetHighUIColor(B_PANEL_TEXT_COLOR, B_DARKEN_1_TINT);
         layout->AddView(note, 0, row++, 2, 1);
     }

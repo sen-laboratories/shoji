@@ -24,6 +24,11 @@
 #include "ShojiGenericFormView.h"
 #include "ShojiLinkLabel.h"
 #include "ShojiListControl.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiGenericFormView"
+
 
 /*
  * generic dynamic view to use when no MIME specific view is available for the source file.
@@ -89,7 +94,7 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
     }
     if (row == 0) {
         // nothing to show, and the window should say so, not look broken
-        BStringView* note = new BStringView("note", "This file has no attributes to show.");
+        BStringView* note = new BStringView("note", B_TRANSLATE("This file has no attributes to show."));
         note->SetHighUIColor(B_PANEL_TEXT_COLOR, B_DARKEN_1_TINT);
         layout->AddView(note, 0, row++, 2, 1);
     }
@@ -138,8 +143,8 @@ BControl* ShojiGenericFormView::CreateDataControl(const ShojiAttribute& attr, co
     } else if (shoji::IsSupportedType(attr.type)) {
         control = new BTextControl(attr.name.String(), attr.label.String(), text, NULL);
     } else {
-        BString note("(type of attribute '");
-        note << attr.name << "' is not supported)";
+        BString note(B_TRANSLATE("(type of attribute '%name%' is not supported)"));
+        note.ReplaceAll("%name%", attr.name.String());
         control = new BTextControl(attr.name.String(), attr.label.String(), note.String(), NULL);
     }
     shoji::SetControlEditable(control, attr.editable);
