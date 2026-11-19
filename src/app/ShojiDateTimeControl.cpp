@@ -36,6 +36,7 @@ static const uint32 kTimeChanged = 'sdtT';
 static const uint32 kAllDayChanged = 'sdtA';
 static const uint32 kOpenCalendar = 'sdtO';
 static const uint32 kDayPicked = 'sdtP';
+static const uint32 kFocusLost = 'sdtF';
 
 // --- the time of day: the field of the system does not look or act disabled (the sections take the mouse and the keys and look the same), so a time that does not count (all day) is dimmed and left alone
 
@@ -77,7 +78,20 @@ public:
     virtual void MakeFocus(bool focused = true)
     {
         BPrivate::TimeEdit::MakeFocus(focused && IsEnabled());
+        if (!focused && fFocusTarget.IsValid())
+            fFocusTarget.SendMessage(fFocusWhat);
     }
+
+    /** a message of its own for the owner when the focus leaves the field (the owner decides if it left the whole control) */
+    void SetFocusLostMessage(const BMessenger& target, uint32 what)
+    {
+        fFocusTarget = target;
+        fFocusWhat = what;
+    }
+
+private:
+    BMessenger  fFocusTarget;
+    uint32      fFocusWhat = 0;
 };
 
 // --- the button that opens the calendar: a small button with the filled arrow that the date field has (BControlLook::DrawArrowShape(), as in the lists of Tracker)
@@ -279,7 +293,9 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
     fMinute(0),
     fSeconds(0),
     fSetting(false),
-    fEnabled(true)
+    fEnabled(true),
+    fModification(NULL),
+    fEdited(false)
 {
     // (the control draws nothing itself: its background is the panel's, or what was under it (the calendar that dropped down, a window that was over the form) stays)
     SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
@@ -311,8 +327,14 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
     // the calendar that drops down from the date (a day is picked there as in the clock of the Deskbar)
     fPick = new PickButton("pick", new BMessage(kOpenCalendar));
 
-    layout->AddView(fDate);
-    layout->AddView(fPick);
+    // the button that opens the calendar sits close to the date (they belong together); the time field is as wide as its digits and arrows need
+    BGroupLayout* dateGroup = new BGroupLayout(B_HORIZONTAL, 2.0);
+    dateGroup->SetInsets(0, 0, 0, 0);
+    layout->AddItem(dateGroup);
+    dateGroup->AddView(fDate);
+    dateGroup->AddView(fPick);
+    const float timeWidth = be_plain_font->StringWidth(halfDay ? "00 : 00 MM" : "00 : 00") + 36.0f;
+    fTime->SetExplicitMinSize(BSize(timeWidth, B_SIZE_UNSET));
     layout->AddView(fTime);
     layout->AddView(fAllDay);
     _UpdateEnabled();
@@ -321,6 +343,7 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
 
 ShojiDateTimeControl::~ShojiDateTimeControl()
 {
+    delete fModification;
 }
 
 
@@ -332,6 +355,9 @@ void ShojiDateTimeControl::AttachedToWindow()
     fTime->SetTarget(this);
     fAllDay->SetTarget(this);
     fPick->SetTarget(this);
+    fDate->SetFocusLostMessage(BMessenger(this), kFocusLost);
+    if (ShojiTimeEdit* time = dynamic_cast<ShojiTimeEdit*>(fTime))
+        time->SetFocusLostMessage(BMessenger(this), kFocusLost);
 }
 
 
@@ -354,13 +380,22 @@ void ShojiDateTimeControl::MessageReceived(BMessage* message)
             fHour = time.Hour();
             fMinute = time.Minute();
             _UpdateEnabled();
-            _Changed();
+            _Edited();
             break;
         }
         case kDateChanged:
+            // (typing into the day: the change is complete with Enter or when the focus goes)
+            _UpdateEnabled();
+            _Edited();
+            break;
         case kAllDayChanged:
             _UpdateEnabled();
             _Changed();
+            break;
+        case kFocusLost:
+            // (the focus may have gone from one part of this control to another: nothing is complete then)
+            if (!_HasFocus())
+                CommitEdit();
             break;
         case kOpenCalendar:
         {
@@ -415,8 +450,42 @@ void ShojiDateTimeControl::_UpdateEnabled()
 
 void ShojiDateTimeControl::_Changed()
 {
-    if (!fSetting)
+    if (!fSetting) {
+        fEdited = false;
         Invoke();
+    }
+}
+
+
+void ShojiDateTimeControl::_Edited()
+{
+    if (fSetting)
+        return;
+    fEdited = true;
+    if (fModification != NULL) {
+        BMessage copy(*fModification);
+        Messenger().SendMessage(&copy);
+    }
+}
+
+
+bool ShojiDateTimeControl::_HasFocus()
+{
+    return fDate->IsFocus() || fTime->IsFocus() || fAllDay->IsFocus() || fPick->IsFocus();
+}
+
+
+void ShojiDateTimeControl::SetModificationMessage(BMessage* message)
+{
+    delete fModification;
+    fModification = message;
+}
+
+
+void ShojiDateTimeControl::CommitEdit()
+{
+    if (fEdited)
+        _Changed();
 }
 
 
@@ -456,9 +525,12 @@ bool ShojiDateTimeControl::SetDateTimeText(const char* text)
     if (!ParseDateTime(text, &day, &hour, &minute, &second))
         return false;
     // (what is shown already is left alone: the user may be in the middle of changing it)
-    if (DateTimeText() == text)
+    if (DateTimeText() == text) {
+        fEdited = false;
         return true;
+    }
     fSetting = true;
+    fEdited = false;
     fDate->SetDateText(day.String());
     if (hour >= 0) {
         fSeconds = second;
@@ -478,6 +550,7 @@ bool ShojiDateTimeControl::SetDateTimeText(const char* text)
 void ShojiDateTimeControl::SetUnset()
 {
     fSetting = true;
+    fEdited = false;
     fDate->SetUnset();
     fAllDay->SetValue(B_CONTROL_ON);
     fSeconds = 0;

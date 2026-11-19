@@ -201,6 +201,8 @@ void ShojiDateControl::MakeFocus(bool focused)
     // started at today's date but nothing was changed: it is no date that the user chose
     if (!focused && fPending && fUnsettable)
         SetUnset();
+    if (!focused && fFocusTarget.IsValid())
+        fFocusTarget.SendMessage(fFocusWhat);
 }
 
 

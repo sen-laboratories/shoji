@@ -241,6 +241,51 @@ void ShojiWindow::RefreshPicture()
     AlignForm();
 }
 
+void ShojiWindow::DispatchMessage(BMessage* message, BHandler* handler)
+{
+    if (message->what == B_KEY_DOWN && HandleEditKey(message))
+        return;
+    BWindow::DispatchMessage(message, handler);
+}
+
+bool ShojiWindow::HandleEditKey(BMessage* message)
+{
+    const char* bytes = NULL;
+    if (message->FindString("bytes", &bytes) != B_OK || bytes == NULL || bytes[0] == '\0' || bytes[1] != '\0')
+        return false;
+    const char key = bytes[0];
+    if ((key != B_ESCAPE && key != B_ENTER) || (modifiers() & (B_COMMAND_KEY | B_CONTROL_KEY | B_OPTION_KEY)) != 0)
+        return false;
+
+    // the field that the focus is in (the focus is in a part of a control)
+    for (BView* view = CurrentFocus(); view != NULL; view = view->Parent()) {
+        for (const ShojiAttribute& attr : fAttrs) {
+            if (!attr.editable || FindControl(attr.name.String()) != view)
+                continue;
+            const char* name = attr.name.String();
+            if (key == B_ENTER) {
+                // (a text field takes Enter itself)
+                ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view);
+                if (dateTime == NULL || !dateTime->IsEdited())
+                    return false;
+                dateTime->CommitEdit();
+                return true;
+            }
+            // Escape: the field shows what is stored again
+            if (!HasChanged(name))
+                return false;
+            BString stored;
+            fValues.FindString(name, &stored);
+            shoji::SetControlValue(view, stored.String());
+            fDirty.erase(name);
+            UpdateTitle();
+            UpdateRevertButton();
+            return true;
+        }
+    }
+    return false;
+}
+
 void ShojiWindow::MessageReceived(BMessage* message)
 {
     switch (message->what) {
@@ -474,7 +519,10 @@ void ShojiWindow::ConnectControls()
             checkBox->SetMessage(commit);
             checkBox->SetTarget(this);
         } else if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view)) {
-            // every change of the day or the time is complete
+            // the day or the time that is typed is not complete yet (the title shows the change); Enter, leaving the field, the calendar and All day complete it
+            BMessage* edited = new BMessage(SHOJI_MSG_ATTR_EDITED);
+            edited->AddString(SHOJI_FIELD_ATTR, attr.name.String());
+            dateTime->SetModificationMessage(edited);
             dateTime->SetMessage(commit);
             dateTime->SetTarget(this);
         } else if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {

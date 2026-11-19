@@ -35,6 +35,7 @@ class ShojiWindow : public BWindow
         virtual			    ~ShojiWindow();
 
         virtual void        MessageReceived(BMessage* message);
+        virtual void        DispatchMessage(BMessage* message, BHandler* handler);
         virtual bool        QuitRequested();
         virtual void        WindowActivated(bool active);
         virtual void        FrameResized(float width, float height);
@@ -54,6 +55,8 @@ class ShojiWindow : public BWindow
         BView*              FindControl(const char* name);
         const ShojiAttribute* FindAttribute(const char* name) const;
         bool                HasChanged(const char* name);
+        /** Enter completes the edit of a day or a time, Escape puts back what the field had (what is stored): true if the key was used */
+        bool                HandleEditKey(BMessage* message);
 
         // write back to the attributes of the file
         status_t            Commit(const char* name);

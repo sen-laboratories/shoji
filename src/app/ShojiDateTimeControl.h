@@ -41,9 +41,18 @@ public:
     /** whether a text is a day, or a day with a time of day: what this control can show */
     static bool         IsDateTimeText(const char* text);
 
+    /** sent (a copy of it) on every change that is not complete yet: typing in the day or the time. The message of the control is sent when the change is complete: Enter, the focus leaving the control, a choice from the calendar, the box All day. */
+    void                SetModificationMessage(BMessage* message);
+    /** the change is complete now (Enter): the message of the control is sent if there is a change that was not sent */
+    void                CommitEdit();
+    /** whether the day or the time was changed and not sent yet */
+    bool                IsEdited() const { return fEdited; }
+
 private:
     void                _UpdateEnabled();
     void                _Changed();
+    void                _Edited();
+    bool                _HasFocus();
 
     ShojiDateControl*   fDate;
     BButton*            fPick;
@@ -54,4 +63,6 @@ private:
     int32               fSeconds;       ///< the seconds of the value (the time field shows hours and minutes: what is stored is kept)
     bool                fSetting;       ///< a value is being shown: nothing is sent
     bool                fEnabled;
+    BMessage*           fModification;
+    bool                fEdited;        ///< something was typed that the message of the control has not told yet
 };

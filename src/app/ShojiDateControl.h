@@ -6,6 +6,7 @@
 
 #include <DateFormat.h>
 #include <DateTimeEdit.h>
+#include <Messenger.h>
 #include <String.h>
 
 /**
@@ -45,6 +46,9 @@ public:
     bool                SetDateText(const char* text);
     BString             DateText();
 
+    /** a message of its own for the owner when the focus leaves the control (a part of a bigger control: the owner decides if the focus left that, too) */
+    void                SetFocusLostMessage(const BMessenger& target, uint32 what) { fFocusTarget = target; fFocusWhat = what; }
+
     /** the control can show no date (a birthday that is not known): see above */
     void                SetUnsettable(bool unsettable) { fUnsettable = unsettable; }
     bool                Unsettable() const { return fUnsettable; }
@@ -69,6 +73,8 @@ private:
     BString             fTyped;         ///< the digits typed into the field that has the focus
     bigtime_t           fTypedAt;
     bool                fSkipSeparator; ///< the field moved on by itself: the next separator is the one that was typed after it
+    BMessenger          fFocusTarget;
+    uint32              fFocusWhat = 0;
     bool                fPending;       ///< it was started at today's date and nothing was changed yet: it goes back to unset if it loses the focus
     void                _Begin();       ///< leaves the unset state, at today's date
     /** the text of the date in the format, with where the fields are (positions of start and end for each field and each separator, malloc'ed) and what they are; false if it cannot be made */
