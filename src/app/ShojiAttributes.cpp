@@ -215,10 +215,25 @@ static status_t FormatValue(type_code type, const uint8* data, ssize_t size, BSt
             const bool isDate = seconds % kSecondsPerDay == 0;
             time_t time = (time_t)seconds;
             struct tm parts;
-            if ((isDate ? gmtime_r(&time, &parts) : localtime_r(&time, &parts)) == NULL)
-                return B_BAD_DATA;
             char buffer[64];
-            strftime(buffer, sizeof(buffer), isDate ? kDateFormat : kTimeFormat, &parts);
+            if (seconds >= 0 && (isDate ? gmtime_r(&time, &parts) : localtime_r(&time, &parts)) != NULL) {
+                strftime(buffer, sizeof(buffer), isDate ? kDateFormat : kTimeFormat, &parts);
+            } else {
+                // (before 1970 Haiku's localtime and gmtime fail: the calendar is counted here, on the clock of the zone as the zone is now)
+                const long long clock = isDate ? seconds : seconds + sen::timeattr::LocalOffsetAt(seconds);
+                long long days = clock / kSecondsPerDay, rest = clock % kSecondsPerDay;
+                if (rest < 0) {
+                    rest += kSecondsPerDay;
+                    days--;
+                }
+                long long year;
+                int month, day;
+                sen::edtf::detail::CivilFromDays(days, &year, &month, &day);
+                if (isDate)
+                    snprintf(buffer, sizeof(buffer), "%04lld-%02d-%02d", year, month, day);
+                else
+                    snprintf(buffer, sizeof(buffer), "%04lld-%02d-%02d %02d:%02d:%02d", year, month, day, (int)(rest / 3600), (int)(rest % 3600 / 60), (int)(rest % 60));
+            }
             text->SetTo(buffer);
             return B_OK;
         }
@@ -363,7 +378,15 @@ static status_t ParseValue(type_code type, const char* text, std::vector<uint8>*
                 const char* rest = strptime(text, format, &parts);
                 if (rest == NULL || *rest != '\0')
                     continue;
-                time_t time = format == kDateFormat ? MidnightUtc(parts) : mktime(&parts);
+                time_t time;
+                if (format == kDateFormat)
+                    time = MidnightUtc(parts);
+                else if (parts.tm_year < 70 || (parts.tm_year == 70 && parts.tm_mon == 0 && parts.tm_mday <= 2)) {
+                    // (mktime of Haiku does not know the years before 1970, and is a second off at their edge: the clock is counted as the zone has it now)
+                    const long long utc = (long long)MidnightUtc(parts) + parts.tm_hour * 3600LL + parts.tm_min * 60LL + parts.tm_sec;
+                    time = (time_t)(utc - sen::timeattr::LocalOffsetAt(utc));
+                } else
+                    time = mktime(&parts);
                 if (time == (time_t)-1)
                     return B_BAD_VALUE;
                 Append(data, &time, sizeof(time));
