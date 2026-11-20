@@ -38,7 +38,6 @@
 
 static const uint32 kDateChanged = 'sdtD';
 static const uint32 kTimeChanged = 'sdtT';
-static const uint32 kAllDayChanged = 'sdtA';
 static const uint32 kOpenCalendar = 'sdtO';
 static const uint32 kDayPicked = 'sdtP';
 static const uint32 kFocusLost = 'sdtF';
@@ -300,7 +299,8 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
     fSetting(false),
     fEnabled(true),
     fModification(NULL),
-    fEdited(false)
+    fEdited(false),
+    fAllDay(true)
 {
     // (the control draws nothing itself: its background is the panel's, or what was under it (the calendar that dropped down, a window that was over the form) stays)
     SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
@@ -326,9 +326,6 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
     fTime = new ShojiTimeEdit("time", halfDay ? 3 : 2, new BMessage(kTimeChanged));
     fTime->SetTime(9, 0, 0);
 
-    fAllDay = new BCheckBox("allday", B_TRANSLATE("All day"), new BMessage(kAllDayChanged));
-    fAllDay->SetValue(B_CONTROL_ON);
-
     // the calendar that drops down from the date (a day is picked there as in the clock of the Deskbar)
     fPick = new PickButton("pick", new BMessage(kOpenCalendar));
 
@@ -341,7 +338,6 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
     const float timeWidth = be_plain_font->StringWidth(halfDay ? "00 : 00 MM" : "00 : 00") + 36.0f;
     fTime->SetExplicitMinSize(BSize(timeWidth, B_SIZE_UNSET));
     layout->AddView(fTime);
-    layout->AddView(fAllDay);
     _UpdateEnabled();
 }
 
@@ -358,7 +354,6 @@ void ShojiDateTimeControl::AttachedToWindow()
     // (the parts tell this control what the user changed)
     fDate->SetTarget(this);
     fTime->SetTarget(this);
-    fAllDay->SetTarget(this);
     fPick->SetTarget(this);
     fDate->SetFocusLostMessage(BMessenger(this), kFocusLost);
     if (ShojiTimeEdit* time = dynamic_cast<ShojiTimeEdit*>(fTime))
@@ -392,10 +387,6 @@ void ShojiDateTimeControl::MessageReceived(BMessage* message)
             // (typing into the day: the change is complete with Enter or when the focus goes)
             _UpdateEnabled();
             _Edited();
-            break;
-        case kAllDayChanged:
-            _UpdateEnabled();
-            _Changed();
             break;
         case kFocusLost:
             // (the focus may have gone from one part of this control to another: nothing is complete then)
@@ -448,8 +439,31 @@ void ShojiDateTimeControl::_UpdateEnabled()
     const bool hasDate = !fDate->IsUnset();
     fDate->SetEnabled(fEnabled);
     fPick->SetEnabled(fEnabled);
-    fAllDay->SetEnabled(fEnabled && hasDate);
-    fTime->SetEnabled(fEnabled && hasDate && fAllDay->Value() != B_CONTROL_ON);
+    fTime->SetEnabled(fEnabled && hasDate && !fAllDay);
+    if (fStateCallback)
+        fStateCallback();
+}
+
+
+bool ShojiDateTimeControl::IsAllDay() const
+{
+    return fAllDay;
+}
+
+
+bool ShojiDateTimeControl::HasDate() const
+{
+    return !fDate->IsUnset();
+}
+
+
+void ShojiDateTimeControl::SetAllDay(bool allDay, bool notify)
+{
+    const bool changed = IsAllDay() != allDay;
+    fAllDay = allDay;
+    _UpdateEnabled();
+    if (changed && notify && HasDate())
+        _Changed();
 }
 
 
@@ -476,7 +490,7 @@ void ShojiDateTimeControl::_Edited()
 
 bool ShojiDateTimeControl::_HasFocus()
 {
-    return fDate->IsFocus() || fTime->IsFocus() || fAllDay->IsFocus() || fPick->IsFocus();
+    return fDate->IsFocus() || fTime->IsFocus() || fPick->IsFocus();
 }
 
 
@@ -507,7 +521,7 @@ BString ShojiDateTimeControl::DateTimeText()
     if (fDate->IsUnset())
         return BString();
     BString text = fDate->DateText();
-    if (fAllDay->Value() != B_CONTROL_ON) {
+    if (!fAllDay) {
         const BTime time = fTime->GetTime();
         BString clock;
         clock.SetToFormat(" %02d:%02d:%02d", (int)time.Hour(), (int)time.Minute(), (int)fSeconds);
@@ -542,9 +556,9 @@ bool ShojiDateTimeControl::SetDateTimeText(const char* text)
         fHour = hour;
         fMinute = minute;
         fTime->SetTime(hour, minute, 0);
-        fAllDay->SetValue(B_CONTROL_OFF);
+        fAllDay = false;
     } else {
-        fAllDay->SetValue(B_CONTROL_ON);
+        fAllDay = true;
     }
     fSetting = false;
     _UpdateEnabled();
@@ -557,8 +571,143 @@ void ShojiDateTimeControl::SetUnset()
     fSetting = true;
     fEdited = false;
     fDate->SetUnset();
-    fAllDay->SetValue(B_CONTROL_ON);
+    fAllDay = true;
     fSeconds = 0;
     fSetting = false;
     _UpdateEnabled();
+}
+
+
+// ---- the one box All day of the start and the end
+
+static const uint32 kBothAllDayChanged = 'sdAb';
+
+
+ShojiAllDayBox::ShojiAllDayBox(const char* label, ShojiDateTimeControl* start, ShojiDateTimeControl* end)
+    :
+    BCheckBox("all day of both", label, new BMessage(kBothAllDayChanged)),
+    fStart(start),
+    fEnd(end),
+    fMixed(false)
+{
+    // (the controls tell this box when what they show changes: a value that was set, a day that was picked)
+    fStart->SetStateCallback([this]() { Refresh(); });
+    if (fEnd != NULL)
+        fEnd->SetStateCallback([this]() { Refresh(); });
+}
+
+
+void ShojiAllDayBox::AttachedToWindow()
+{
+    BCheckBox::AttachedToWindow();
+    SetTarget(this);
+    Refresh();
+}
+
+
+void ShojiAllDayBox::MessageReceived(BMessage* message)
+{
+    if (message->what == kBothAllDayChanged) {
+        // (a click on the dash makes both a day, a click on a box that both agree on turns both)
+        const bool allDay = fMixed ? true : Value() == B_CONTROL_ON;
+        fStart->SetAllDay(allDay, true);
+        if (fEnd != NULL)
+            fEnd->SetAllDay(allDay, true);
+        Refresh();
+        return;
+    }
+    BCheckBox::MessageReceived(message);
+}
+
+
+void ShojiAllDayBox::Refresh()
+{
+    const bool hasStart = fStart->HasDate(), hasEnd = fEnd != NULL && fEnd->HasDate();
+    const bool startAllDay = fStart->IsAllDay(), endAllDay = fEnd != NULL && fEnd->IsAllDay();
+    int32 value = B_CONTROL_ON;
+    fMixed = false;
+    if (hasStart && hasEnd) {
+        if (startAllDay == endAllDay)
+            value = startAllDay ? B_CONTROL_ON : B_CONTROL_OFF;
+        else {
+            value = B_CONTROL_PARTIALLY_ON;
+            fMixed = true;
+        }
+    } else if (hasStart)
+        value = startAllDay ? B_CONTROL_ON : B_CONTROL_OFF;
+    else if (hasEnd)
+        value = endAllDay ? B_CONTROL_ON : B_CONTROL_OFF;
+
+    SetValue(value);
+    SetEnabled(fStart->IsEnabled() && (fEnd == NULL || fEnd->IsEnabled()) && (hasStart || hasEnd));
+}
+
+
+bool ShojiCombineAllDay(BGridLayout* grid, ShojiDateTimeControl* start, int32 startRow, BView* startLabel, ShojiDateTimeControl* end, int32 endRow, BView* endLabel)
+{
+    if (grid == NULL || start == NULL || end == NULL || startRow < 0 || endRow != startRow + 1)
+        return false;
+    if (!grid->RemoveView(start))
+        return false;
+    if (!grid->RemoveView(end)) {
+        grid->AddView(start, 1, startRow);
+        return false;
+    }
+
+    // (each row is as high as a control: the grid gives the rows of a cell that spans both the height that the cell asks for, not always in equal parts)
+    const float rowHeight = std::max(start->PreferredSize().Height(), end->PreferredSize().Height());
+    if (startLabel != NULL)
+        startLabel->SetExplicitMinSize(BSize(B_SIZE_UNSET, rowHeight));
+    if (endLabel != NULL)
+        endLabel->SetExplicitMinSize(BSize(B_SIZE_UNSET, rowHeight));
+
+    // one cell for both rows: the two controls one under the other (the space between them as that between the rows of the form), the box to their right, in the middle of their height
+    BView* range = new BView("start and end", B_WILL_DRAW);
+    range->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+    BGridLayout* inner = new BGridLayout(B_USE_DEFAULT_SPACING, grid->VerticalSpacing());
+    inner->SetInsets(0, 0, 0, 0);
+    range->SetLayout(inner);
+
+    ShojiAllDayBox* box = new ShojiAllDayBox(B_TRANSLATE("All day"), start, end);
+    box->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+    start->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+    end->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+    inner->AddView(start, 0, 0);
+    inner->AddView(end, 0, 1);
+    inner->AddView(box, 1, 0, 1, 2);
+
+    // (as high as the two rows that it spans, so that each control stands in the middle of its row, as the label of the row does)
+    range->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_USE_FULL_HEIGHT));
+    range->SetExplicitMaxSize(BSize(B_SIZE_UNSET, B_SIZE_UNLIMITED));
+    grid->AddView(range, 1, startRow, 1, 2);
+    // (the sizes that were worked out before are void, and the window asks for the height of the form before it is shown: the new cell and the grid work them out now, the cell first)
+    inner->InvalidateLayout(true);
+    grid->InvalidateLayout(true);
+    range->MinSize();
+    range->MaxSize();
+    range->PreferredSize();
+    if (BView* owner = grid->Owner()) {
+        owner->MinSize();
+        owner->MaxSize();
+        owner->PreferredSize();
+    }
+    return true;
+}
+
+
+bool ShojiAddAllDay(BGridLayout* grid, ShojiDateTimeControl* control, int32 row)
+{
+    if (grid == NULL || control == NULL || row < 0 || !grid->RemoveView(control))
+        return false;
+    // the control and the box in one cell, the box to the right of the control
+    BView* cell = new BView("date and all day", B_WILL_DRAW);
+    cell->SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+    BGroupLayout* group = new BGroupLayout(B_HORIZONTAL, B_USE_DEFAULT_SPACING);
+    group->SetInsets(0, 0, 0, 0);
+    cell->SetLayout(group);
+    group->AddView(control);
+    group->AddView(new ShojiAllDayBox(B_TRANSLATE("All day"), control));
+    cell->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+    grid->AddView(cell, 1, row);
+    return true;
 }

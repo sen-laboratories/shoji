@@ -54,6 +54,9 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
 {
     BGridLayout* layout = reinterpret_cast<BGridView*>(fView)->GridLayout();
     int32 row = 0;
+    int32 startRow = -1, endRow = -1;
+    BView* startLabel = NULL;
+    BView* endLabel = NULL;
 
     for (const ShojiAttribute& attr : attrs) {
         if (!attr.viewable)
@@ -71,7 +74,15 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
             layout->AddView(list, 1, row);
         } else if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(control)) {
             dateTime->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
-            layout->AddView(new BStringView("label", attr.label.String()), 0, row);
+            BStringView* dateLabel = new BStringView("label", attr.label.String());
+            if (attr.name == "schema:startDate") {
+                startRow = row;
+                startLabel = dateLabel;
+            } else if (attr.name == "schema:endDate") {
+                endRow = row;
+                endLabel = dateLabel;
+            }
+            layout->AddView(dateLabel, 0, row);
             layout->AddView(dateTime, 1, row);
         } else if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(control)) {
             // the date control has no label of its own: the label on the left, the control as wide as it needs
@@ -91,6 +102,15 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
             layout->AddView(control, 0, row, 2, 1);
         }
         row++;
+    }
+    // the start and the end of something: one box All day for both, in the middle between them (a form that has only one of them has the box beside it)
+    ShojiDateTimeControl* start = startRow >= 0 ? dynamic_cast<ShojiDateTimeControl*>(fView->FindView("schema:startDate")) : NULL;
+    ShojiDateTimeControl* end = endRow >= 0 ? dynamic_cast<ShojiDateTimeControl*>(fView->FindView("schema:endDate")) : NULL;
+    if (!(start != NULL && end != NULL && ShojiCombineAllDay(layout, start, startRow, startLabel, end, endRow, endLabel))) {
+        if (start != NULL)
+            ShojiAddAllDay(layout, start, startRow);
+        if (end != NULL)
+            ShojiAddAllDay(layout, end, endRow);
     }
     if (row == 0) {
         // nothing to show, and the window should say so, not look broken

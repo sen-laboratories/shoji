@@ -339,6 +339,36 @@ status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMes
             shoji::SetControlEditable(control, attr.editable);
     }
 
+    // the start and the end of something stand in two rows: one box All day for both, in the middle between them (a form that has only one of them has the box beside it)
+    {
+        ShojiDateTimeControl* controls[2] = {
+            dynamic_cast<ShojiDateTimeControl*>(fView->FindView("schema:startDate")),
+            dynamic_cast<ShojiDateTimeControl*>(fView->FindView("schema:endDate"))
+        };
+        int32 rows[2] = {-1, -1};
+        BView* labels[2] = {NULL, NULL};
+        BGridLayout* grid = NULL;
+        for (int i = 0; i < 2; i++) {
+            BView* parent = controls[i] != NULL ? controls[i]->Parent() : NULL;
+            BGridLayout* own = parent != NULL ? dynamic_cast<BGridLayout*>(parent->GetLayout()) : NULL;
+            if (own == NULL || forms.find(own) == forms.end() || forms[own].rowOfField.find(controls[i]) == forms[own].rowOfField.end()) {
+                controls[i] = NULL;
+                continue;
+            }
+            grid = own;
+            rows[i] = forms[own].rowOfField[controls[i]];
+            labels[i] = rows[i] < (int32) forms[own].labels.size() ? forms[own].labels[rows[i]] : NULL;
+        }
+        if (controls[0] != NULL && controls[1] != NULL && ShojiCombineAllDay(grid, controls[0], rows[0], labels[0], controls[1], rows[1], labels[1]))
+            ;
+        else {
+            for (int i = 0; i < 2; i++) {
+                if (controls[i] != NULL)
+                    ShojiAddAllDay(grid, controls[i], rows[i]);
+            }
+        }
+    }
+
     // the map of a place (the template of a place has one) shows where it is
     if (PlaceMapView* map = dynamic_cast<PlaceMapView*>(fView->FindView(PlaceMapView::ViewName())))
         map->SetPlace(values);

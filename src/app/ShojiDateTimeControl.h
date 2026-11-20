@@ -4,11 +4,14 @@
  */
 #pragma once
 
+#include <CheckBox.h>
 #include <Control.h>
 #include <String.h>
 
+#include <functional>
+
 class BButton;
-class BCheckBox;
+class BGridLayout;
 class ShojiDateControl;
 
 namespace BPrivate {
@@ -48,6 +51,15 @@ public:
     /** whether the day or the time was changed and not sent yet */
     bool                IsEdited() const { return fEdited; }
 
+    /** whether the value is a day with no time of day (the box All day of the form, ShojiAllDayBox, sets it: the control has no box of its own) */
+    bool                IsAllDay() const;
+    /** whether a day is set */
+    bool                HasDate() const;
+    /** sets All day (the time of day is left out); the message of the control is sent if @p notify, a day is set and the value changed */
+    void                SetAllDay(bool allDay, bool notify);
+    /** called whenever what the control shows changes (a value was set, the user changed something): the box of the form follows */
+    void                SetStateCallback(const std::function<void()>& callback) { fStateCallback = callback; }
+
 private:
     void                _UpdateEnabled();
     void                _Changed();
@@ -57,7 +69,7 @@ private:
     ShojiDateControl*   fDate;
     BButton*            fPick;
     BPrivate::TimeEdit* fTime;
-    BCheckBox*          fAllDay;
+    bool                fAllDay;        ///< the value is a day with no time of day (the time field is not used)
     int32               fHour;          ///< the time that the field shows (it forgets it when it is attached)
     int32               fMinute;
     int32               fSeconds;       ///< the seconds of the value (the time field shows hours and minutes: what is stored is kept)
@@ -65,4 +77,38 @@ private:
     bool                fEnabled;
     BMessage*           fModification;
     bool                fEdited;        ///< something was typed that the message of the control has not told yet
+    std::function<void()> fStateCallback;
 };
+
+
+/**
+ * The box All day of the start and the end of something (the controls have none): it sits to the right of the two controls, in the middle between them. It shows what both say (checked if both are a day,
+ * empty if both have a time of day, a dash if they differ) and sets both. A start with no end has it beside it. Made by ShojiCombineAllDay() and ShojiAddAllDay().
+ */
+class ShojiAllDayBox : public BCheckBox {
+public:
+                        ShojiAllDayBox(const char* label, ShojiDateTimeControl* start, ShojiDateTimeControl* end = NULL);
+
+    virtual void        AttachedToWindow();
+    virtual void        MessageReceived(BMessage* message);
+
+    /** shows what the controls say */
+    void                Refresh();
+
+private:
+    ShojiDateTimeControl*   fStart;
+    ShojiDateTimeControl*   fEnd;
+    bool                    fMixed;     ///< the two differ (a click makes both a day)
+};
+
+
+/**
+ * Puts the start and the end that stand in two rows one under the other in the column of the fields of a form (grid, label in the first column, controls in the second) in one cell that spans both rows,
+ * with the one box All day to the right of them, in the middle. The controls lose their own box. The rows are those that the caller knows (the cells of a grid are not looked at: a grid keeps stale cells
+ * when a field was replaced). The labels of the two rows (if the caller has them) get the height of a control, so that a grid that shares the height of the one cell between the two rows gives each the same.
+ * @return false if they are not in two following rows (nothing is changed)
+ */
+bool ShojiCombineAllDay(BGridLayout* grid, ShojiDateTimeControl* start, int32 startRow, BView* startLabel, ShojiDateTimeControl* end, int32 endRow, BView* endLabel);
+
+/** A start or an end that has no partner in the form (a file type that has only one of them): the box All day stands beside the control, in its cell. The control is at the row @p row of the column of the fields. */
+bool ShojiAddAllDay(BGridLayout* grid, ShojiDateTimeControl* control, int32 row);
