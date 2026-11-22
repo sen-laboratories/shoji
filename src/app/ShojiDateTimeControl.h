@@ -6,11 +6,13 @@
 
 #include <CheckBox.h>
 #include <Control.h>
+#include <Messenger.h>
 #include <String.h>
 
 #include <functional>
 
 class BButton;
+class BMessageFilter;
 class BGridLayout;
 class ShojiDateControl;
 
@@ -31,6 +33,7 @@ public:
 
     virtual void        AttachedToWindow();
     virtual void        AllAttached();
+    virtual void        DetachedFromWindow();
     virtual void        MessageReceived(BMessage* message);
     virtual void        SetEnabled(bool enabled);
 
@@ -65,6 +68,7 @@ private:
     void                _Changed();
     void                _Edited();
     bool                _HasFocus();
+    void                _CloseCalendar();
 
     ShojiDateControl*   fDate;
     BButton*            fPick;
@@ -78,6 +82,8 @@ private:
     BMessage*           fModification;
     bool                fEdited;        ///< something was typed that the message of the control has not told yet
     std::function<void()> fStateCallback;
+    BMessenger          fCalendar;      ///< the calendar that dropped down (it never takes the focus: the form window stays the active one)
+    BMessageFilter*     fCloseFilter;   ///< on the window of the form while the calendar is open: a click elsewhere, a key or leaving the window closes it
 };
 
 

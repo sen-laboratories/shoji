@@ -13,6 +13,7 @@
 #include <DateTimeEdit.h>
 #include <GridLayout.h>
 #include <GroupLayout.h>
+#include <MessageFilter.h>
 #include <Messenger.h>
 #include <Screen.h>
 #include <SpaceLayoutItem.h>
@@ -41,6 +42,7 @@ static const uint32 kTimeChanged = 'sdtT';
 static const uint32 kOpenCalendar = 'sdtO';
 static const uint32 kDayPicked = 'sdtP';
 static const uint32 kFocusLost = 'sdtF';
+static const uint32 kCalendarClosed = 'sdtC';
 
 // --- the time of day: the field of the system does not look or act disabled (the sections take the mouse and the keys and look the same), so a time that does not count (all day) is dimmed and left alone
 
@@ -131,6 +133,50 @@ public:
     }
 };
 
+// The calendar never takes the focus (the form window stays the active one, with its yellow tab, and the field keeps the keyboard), so it cannot go when it is deactivated: this filter of the
+// window of the form closes it when the user clicks anywhere else in the form, presses a key (Escape, or typing in the field) or leaves the window.
+class CalendarCloseFilter : public BMessageFilter {
+public:
+    CalendarCloseFilter(const BMessenger& calendar, const BMessenger& owner)
+        :
+        BMessageFilter(B_ANY_DELIVERY, B_ANY_SOURCE),
+        fCalendar(calendar),
+        fOwner(owner)
+    {
+    }
+
+    virtual filter_result Filter(BMessage* message, BHandler** target)
+    {
+        bool close = false;
+        filter_result result = B_DISPATCH_MESSAGE;
+        switch (message->what) {
+            case B_MOUSE_DOWN:
+                close = true;
+                break;
+            case B_KEY_DOWN:
+            {
+                close = true;
+                const char* bytes = NULL;
+                if (message->FindString("bytes", &bytes) == B_OK && bytes != NULL && bytes[0] == B_ESCAPE)
+                    result = B_SKIP_MESSAGE;
+                break;
+            }
+            case B_WINDOW_ACTIVATED:
+                close = !message->GetBool("active", false);
+                break;
+        }
+        if (close) {
+            fCalendar.SendMessage(B_QUIT_REQUESTED);
+            fOwner.SendMessage(kCalendarClosed);
+        }
+        return result;
+    }
+
+private:
+    BMessenger  fCalendar;
+    BMessenger  fOwner;
+};
+
 // --- the calendar that drops down from the date, as the one of the Deskbar (the clock) has: a month with its days, to be picked from, and the buttons for the month and the year
 
 class CalendarWindow : public BWindow {
@@ -139,7 +185,7 @@ public:
         :
         // (no window frame: it is a part of the form that drops down; the line around it is drawn by the content)
         BWindow(BRect(0.0, 0.0, 100.0, 130.0), "", B_NO_BORDER_WINDOW_LOOK, B_FLOATING_ALL_WINDOW_FEEL,
-            B_AUTO_UPDATE_SIZE_LIMITS | B_ASYNCHRONOUS_CONTROLS | B_CLOSE_ON_ESCAPE | B_NOT_MINIMIZABLE | B_NOT_MOVABLE | B_NOT_RESIZABLE | B_NOT_ZOOMABLE),
+            B_AUTO_UPDATE_SIZE_LIMITS | B_ASYNCHRONOUS_CONTROLS | B_AVOID_FOCUS | B_NOT_MINIMIZABLE | B_NOT_MOVABLE | B_NOT_RESIZABLE | B_NOT_ZOOMABLE),
         fTarget(target)
     {
 
@@ -185,14 +231,7 @@ public:
         if (where.y + size.height > screen.bottom)
             where.y = frame.top - size.height - 30;
         MoveTo(where);
-        fView->MakeFocus(true);
         BWindow::Show();
-    }
-
-    virtual void WindowActivated(bool active)
-    {
-        if (!active)
-            PostMessage(B_QUIT_REQUESTED);
     }
 
     virtual void MessageReceived(BMessage* message)
@@ -300,6 +339,7 @@ ShojiDateTimeControl::ShojiDateTimeControl(const char* name, BMessage* message)
     fEnabled(true),
     fModification(NULL),
     fEdited(false),
+    fCloseFilter(NULL),
     fAllDay(true)
 {
     // (the control draws nothing itself: its background is the panel's, or what was under it (the calendar that dropped down, a window that was over the form) stays)
@@ -402,10 +442,19 @@ void ShojiDateTimeControl::MessageReceived(BMessage* message)
                     date.SetDate(year, month, day);
             }
             BPoint where = fDate->ConvertToScreen(BPoint(0, fDate->Bounds().bottom + 2));
+            _CloseCalendar();
             CalendarWindow* calendar = new CalendarWindow(where, date, BMessenger(this));
+            fCalendar = BMessenger(calendar);
             calendar->Show();
+            if (Window() != NULL) {
+                fCloseFilter = new CalendarCloseFilter(fCalendar, BMessenger(this));
+                Window()->AddCommonFilter(fCloseFilter);
+            }
             break;
         }
+        case kCalendarClosed:
+            _CloseCalendar();
+            break;
         case kDayPicked:
         {
             int32 day, month, year;
@@ -418,11 +467,34 @@ void ShojiDateTimeControl::MessageReceived(BMessage* message)
             fSetting = false;
             _UpdateEnabled();
             _Changed();
+            _CloseCalendar();
             break;
         }
         default:
             BControl::MessageReceived(message);
     }
+}
+
+
+void ShojiDateTimeControl::DetachedFromWindow()
+{
+    _CloseCalendar();
+    BControl::DetachedFromWindow();
+}
+
+
+/** closes the calendar (if there is one) and takes the filter off the window */
+void ShojiDateTimeControl::_CloseCalendar()
+{
+    if (fCloseFilter != NULL) {
+        if (Window() != NULL)
+            Window()->RemoveCommonFilter(fCloseFilter);
+        delete fCloseFilter;
+        fCloseFilter = NULL;
+    }
+    if (fCalendar.IsValid())
+        fCalendar.SendMessage(B_QUIT_REQUESTED);
+    fCalendar = BMessenger();
 }
 
 
