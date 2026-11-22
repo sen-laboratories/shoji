@@ -30,6 +30,7 @@
 #include <Slider.h>
 #include <SpaceLayoutItem.h>
 #include <Spinner.h>
+#include <Url.h>
 #include <SplitView.h>
 #include <StringView.h>
 #include <TextControl.h>
@@ -595,7 +596,8 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             const char* path;
             // (a button that listens to an update is the revert button of its field: it answers its master, the owner is not asked)
             if (message->FindString("path", &path) == B_OK && _IsBound(path)) {
-                _AnswerDefault(path);
+                if (!_OpenUrlOf(path))
+                    _AnswerDefault(path);
                 break;
             }
             if (message->FindString("path", &path) == B_OK && fTarget.IsValid()) {
@@ -1275,7 +1277,19 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
                 BTextControl* partnerControl = _PlainTextControl(partnerPath, partnerText, partnerKind != NULL && strcmp(partnerKind, form::kKindSecret) == 0, partnerHelp);
                 checkBox->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
                 layout->AddView(checkBox, 0, *row);
-                layout->AddView(partnerControl, 1, *row);
+                // buttons at the end of the line of that field (a `Get key...` beside the API key): field and buttons in a group, as in the line of any other field
+                const std::vector<BButton*> partnerButtons = _BesideButtons(node, key, partner->second);
+                if (partnerButtons.empty())
+                    layout->AddView(partnerControl, 1, *row);
+                else {
+                    BGroupView* cell = new BGroupView(B_HORIZONTAL, B_USE_DEFAULT_SPACING);
+                    cell->GroupLayout()->SetInsets(0, 0, 0, 0);
+                    cell->GroupLayout()->AddView(partnerControl);
+                    for (BButton* button : partnerButtons)
+                        cell->GroupLayout()->AddView(button);
+                    cell->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+                    layout->AddView(cell, 1, *row);
+                }
                 fTextPaths.push_back(partnerPath);
                 (*row)++;
                 return;
@@ -1921,9 +1935,15 @@ void ShojiMessageView::_ApplyUpdate(const std::string& path, const BMessage* par
     if (part != NULL)
         GetText(*part, form::kUpdateValue, &text);
     if (dynamic_cast<BButton*>(control) != NULL) {
-        // a revert button: there is something to revert while the value is not the default
-        std::string standard;
-        enabled = enabled && GetText(*part, form::kUpdateDefault, &standard) == B_OK && standard != text;
+        std::string address;
+        if (part != NULL && part->HasString(form::kUpdateUrl)) {
+            // a link button: it can be pressed while there is an address to go to
+            enabled = enabled && GetText(*part, form::kUpdateUrl, &address) == B_OK && !address.empty();
+        } else {
+            // a revert button: there is something to revert while the value is not the default
+            std::string standard;
+            enabled = enabled && part != NULL && GetText(*part, form::kUpdateDefault, &standard) == B_OK && standard != text;
+        }
     } else {
         _SetControlText(control, text);
     }
@@ -1959,6 +1979,26 @@ void ShojiMessageView::_Answer(const std::string& path, const std::string& text)
             _PublishAll();
         return;
     }
+}
+
+
+// A link button (its update has an address): the address opens in the application that the user has for it. @return false if the button is no link button (it is a revert button)
+bool ShojiMessageView::_OpenUrlOf(const std::string& path)
+{
+    for (const Binding& binding : fBindings) {
+        if (binding.path != path)
+            continue;
+        if (!binding.last.HasString(form::kUpdateUrl))
+            return false;
+        std::string address;
+        if (GetText(binding.last, form::kUpdateUrl, &address) == B_OK && !address.empty()) {
+            BUrl url(address.c_str(), true);
+            if (url.IsValid())
+                url.OpenWithPreferredApplication();
+        }
+        return true;
+    }
+    return false;
 }
 
 

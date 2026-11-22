@@ -138,6 +138,7 @@ private:
     void                    _Answer(const std::string& path, const std::string& text);
     /** the revert button of a field was pressed: it answers with the default that the update gave */
     void                    _AnswerDefault(const std::string& path);
+    bool                    _OpenUrlOf(const std::string& path);
     void                    _TakeAnswer(const BMessage& answer);
     bool                    _IsBound(const std::string& path) const;
     void                    _SetControlText(BView* control, const std::string& text);
