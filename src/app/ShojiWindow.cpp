@@ -6,6 +6,7 @@
 #include <Alert.h>
 #include <Invoker.h>
 #include <Menu.h>
+#include <PopUpMenu.h>
 #include <MenuBar.h>
 #include <MenuItem.h>
 #include <NodeMonitor.h>
@@ -37,12 +38,23 @@
 
 #include "ShojiApp.h"
 #include "ShojiLinkLabel.h"
+#include <sen/SenAttrValues.h>
+#include <sen/SenRepeatPicker.h>
+#include <sen/SenRecurrence.h>
+#include <sen/SenTimeAttributes.h>
+
 #include "ShojiWindow.h"
 #include "ShojiView.h"
 #include "ShojiGenericFormView.h"
 #include "ShojiTemplateView.h"
 #include "ShojiDateControl.h"
+#include "ShojiDateTimeControl.h"
 #include "ShojiListControl.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiWindow"
+
 
 static const char* kAttrThumbnail = "Media:Thumbnail";
 static const ssize_t kMaxThumbnailSize = 4 * 1024 * 1024;
@@ -52,7 +64,7 @@ static const uint32 kMsgExternalChoice = 'SHxc';
 
 ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     BRect(BPoint(320.0, 128.0), BSize(580.0, 576.0)),
-    "Shoji Entity Viewer",
+    B_TRANSLATE("Shoji Entity Viewer"),
     B_DOCUMENT_WINDOW,
     B_AUTO_UPDATE_SIZE_LIMITS),    // (the window is never smaller than its form needs; no B_WILL_ACCEPT_FIRST_CLICK: a click in the window would pass through without activating it)
     fRef(*ref),
@@ -104,6 +116,8 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     if (mimeType.GetSupertype(&superType) == B_OK)
         superType.GetAttrInfo(&superTypeAttrInfo);
 
+    fMimeType = mimeType.Type();
+
     // attributes are edited only if the file can be written
     fWritable = IsFileWritable();
 
@@ -133,7 +147,7 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
     panel->AddChild(entity);
 
     // the changes are stored as they are made: this takes them back, to the file as it was opened
-    fRevertButton = new BButton("revert", "Revert", new BMessage(kMsgRevert));
+    fRevertButton = new BButton("revert", B_TRANSLATE("Revert"), new BMessage(kMsgRevert));
     fRevertButton->SetEnabled(false);
     BGroupView* buttons = new BGroupView(B_HORIZONTAL, 0);
     buttons->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
@@ -175,6 +189,11 @@ ShojiWindow::ShojiWindow(const entry_ref* ref) : BWindow(
 ShojiWindow::~ShojiWindow()
 {
     stop_watching(this);
+
+    // (the lists follow text views of this window: they end while the views are there)
+    for (sen::FilterPopUpMenu* menu : fFilterMenus)
+        delete menu;
+    fFilterMenus.clear();
 
     if (fEntityView != NULL) {
         // the window deletes its views; one that never was added (a failed setup) is ours
@@ -229,6 +248,51 @@ void ShojiWindow::RefreshPicture()
     AlignForm();
 }
 
+void ShojiWindow::DispatchMessage(BMessage* message, BHandler* handler)
+{
+    if (message->what == B_KEY_DOWN && HandleEditKey(message))
+        return;
+    BWindow::DispatchMessage(message, handler);
+}
+
+bool ShojiWindow::HandleEditKey(BMessage* message)
+{
+    const char* bytes = NULL;
+    if (message->FindString("bytes", &bytes) != B_OK || bytes == NULL || bytes[0] == '\0' || bytes[1] != '\0')
+        return false;
+    const char key = bytes[0];
+    if ((key != B_ESCAPE && key != B_ENTER) || (modifiers() & (B_COMMAND_KEY | B_CONTROL_KEY | B_OPTION_KEY)) != 0)
+        return false;
+
+    // the field that the focus is in (the focus is in a part of a control)
+    for (BView* view = CurrentFocus(); view != NULL; view = view->Parent()) {
+        for (const ShojiAttribute& attr : fAttrs) {
+            if (!attr.editable || FindControl(attr.name.String()) != view)
+                continue;
+            const char* name = attr.name.String();
+            if (key == B_ENTER) {
+                // (a text field takes Enter itself)
+                ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view);
+                if (dateTime == NULL || !dateTime->IsEdited())
+                    return false;
+                dateTime->CommitEdit();
+                return true;
+            }
+            // Escape: the field shows what is stored again
+            if (!HasChanged(name))
+                return false;
+            BString stored;
+            fValues.FindString(name, &stored);
+            shoji::SetControlValue(view, stored.String());
+            fDirty.erase(name);
+            UpdateTitle();
+            UpdateRevertButton();
+            return true;
+        }
+    }
+    return false;
+}
+
 void ShojiWindow::MessageReceived(BMessage* message)
 {
     switch (message->what) {
@@ -252,6 +316,44 @@ void ShojiWindow::MessageReceived(BMessage* message)
             }
             break;
         }
+        case SHOJI_MSG_CHOSEN:
+        {
+            // a value was picked from the list of common values (it is in the field already): it is stored, as if it had been typed and entered
+            const char* name = NULL;
+            if (message->FindString(SHOJI_FIELD_ATTR, &name) == B_OK)
+                Commit(name);
+            break;
+        }
+        case SHOJI_MSG_REPEAT_PICKER:
+        {
+            BView* field = FindControl(sen::recurrence::kWords);
+            BPoint where(100, 100);
+            if (field != NULL)
+                where = field->ConvertToScreen(BPoint(field->Bounds().left, field->Bounds().bottom + 2));
+            BMessage done(SHOJI_MSG_REPEAT_DONE);
+            sen::RepeatPickerLabels labels;
+            labels.title = B_TRANSLATE("Repeat");
+            labels.every = B_TRANSLATE("Every");
+            labels.units[0] = B_TRANSLATE("days");
+            labels.units[1] = B_TRANSLATE("weeks");
+            labels.units[2] = B_TRANSLATE("months");
+            labels.units[3] = B_TRANSLATE("years");
+            labels.ends = B_TRANSLATE("Ends");
+            labels.never = B_TRANSLATE("Never");
+            labels.after = B_TRANSLATE("After");
+            labels.times = B_TRANSLATE("times");
+            labels.on = B_TRANSLATE_COMMENT("On", "the last day of a repeat");
+            labels.doesNotRepeat = B_TRANSLATE("Doesn't repeat");
+            labels.ok = B_TRANSLATE("OK");
+            labels.cancel = B_TRANSLATE("Cancel");
+            labels.more = B_TRANSLATE("This repeat says more than can be set here; OK replaces it.");
+            new sen::RepeatPickerWindow(where, fRef, BMessenger(this), &done, labels);
+            break;
+        }
+        case SHOJI_MSG_REPEAT_DONE:
+            // (the picker wrote the words and the rule into the file: the field shows them)
+            ExternalChange(sen::recurrence::kWords);
+            break;
         case kMsgRevert:
             Revert();
             break;
@@ -320,15 +422,15 @@ void ShojiWindow::FrameResized(float width, float height)
 BMenuBar* ShojiWindow::BuildMenuBar()
 {
     BMenuBar* bar = new BMenuBar("menubar");
-    BMenu* menu = new BMenu("File");
-    BMenuItem* about = new BMenuItem("About Shoji", new BMessage(B_ABOUT_REQUESTED));
+    BMenu* menu = new BMenu(B_TRANSLATE("File"));
+    BMenuItem* about = new BMenuItem(B_TRANSLATE("About Shoji"), new BMessage(B_ABOUT_REQUESTED));
     about->SetTarget(be_app);
     menu->AddItem(about);
-    BMenuItem* settings = new BMenuItem("Settings" B_UTF8_ELLIPSIS, new BMessage(kMsgShowSettings), ',');
+    BMenuItem* settings = new BMenuItem(B_TRANSLATE("Settings" B_UTF8_ELLIPSIS), new BMessage(kMsgShowSettings), ',');
     settings->SetTarget(be_app);
     menu->AddItem(settings);
     menu->AddSeparatorItem();
-    BMenuItem* quit = new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED), 'Q');
+    BMenuItem* quit = new BMenuItem(B_TRANSLATE("Quit"), new BMessage(B_QUIT_REQUESTED), 'Q');
     quit->SetTarget(be_app);
     menu->AddItem(quit);
     bar->AddItem(menu);
@@ -438,9 +540,31 @@ void ShojiWindow::ConnectControls()
             textControl->SetModificationMessage(edited);
             textControl->SetMessage(commit);
             textControl->SetTarget(this);
+
+            // an attribute that has common values (the kinds of an event, in the ontology) gets the list that follows what is typed; other text is taken if the ontology allows it
+            sen::attrvalues::Values values;
+            if (sen::attrvalues::Load(fMimeType.String(), attr.name.String(), &values)) {
+                BMessage* chosen = new BMessage(SHOJI_MSG_CHOSEN);
+                chosen->AddString(SHOJI_FIELD_ATTR, attr.name.String());
+                sen::FilterPopUpMenu* menu = new sen::FilterPopUpMenu(attr.name.String(), chosen);
+                menu->SetValues(values);
+                menu->SetTargetForChoice(this);
+                // how a thing repeats: the list ends with `Custom...`, the window for every N weeks, the weekdays and how long
+                if (sen::recurrence::IsWordsAttribute(attr.name.String()))
+                    menu->SetExtraItem(B_TRANSLATE("Custom" B_UTF8_ELLIPSIS), BMessenger(this), BMessage(SHOJI_MSG_REPEAT_PICKER));
+                menu->AttachTo(textControl->TextView());
+                fFilterMenus.push_back(menu);
+            }
         } else if (BCheckBox* checkBox = dynamic_cast<BCheckBox*>(view)) {
             checkBox->SetMessage(commit);
             checkBox->SetTarget(this);
+        } else if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view)) {
+            // the day or the time that is typed is not complete yet (the title shows the change); Enter, leaving the field, the calendar and All day complete it
+            BMessage* edited = new BMessage(SHOJI_MSG_ATTR_EDITED);
+            edited->AddString(SHOJI_FIELD_ATTR, attr.name.String());
+            dateTime->SetModificationMessage(edited);
+            dateTime->SetMessage(commit);
+            dateTime->SetTarget(this);
         } else if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
             // every change of the date is complete
             date->SetMessage(commit);
@@ -495,6 +619,67 @@ bool ShojiWindow::HasChanged(const char* name)
 }
 
 // stores the value of the control in the attribute and shows what has been stored.
+// --- the end of a thing is not before its start: a day, or a day with a time of day ("2026-12-24", "2026-12-24 18:30:00"), as the seconds of a calendar without time zones (no summer time: a length is kept)
+
+namespace {
+
+long long DaysFromCivil(long long y, unsigned m, unsigned d)
+{
+    y -= m <= 2;
+    const long long era = (y >= 0 ? y : y - 399) / 400;
+    const unsigned yoe = (unsigned)(y - era * 400);
+    const unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+    const unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (long long)doe - 719468;
+}
+
+void CivilFromDays(long long z, int* year, int* month, int* day)
+{
+    z += 719468;
+    const long long era = (z >= 0 ? z : z - 146096) / 146097;
+    const unsigned doe = (unsigned)(z - era * 146097);
+    const unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const long long y = (long long)yoe + era * 400;
+    const unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const unsigned mp = (5 * doy + 2) / 153;
+    *day = (int)(doy - (153 * mp + 2) / 5 + 1);
+    *month = (int)(mp < 10 ? mp + 3 : mp - 9);
+    *year = (int)(y + (*month <= 2));
+}
+
+/** false if the text is no day (a fuzzy value, empty): then nothing is compared */
+bool ParseMoment(const BString& text, long long* seconds, bool* hasTime)
+{
+    int year, month, day, hour = 0, minute = 0, second = 0, used = 0;
+    if (sscanf(text.String(), "%d-%d-%d%n", &year, &month, &day, &used) < 3 || month < 1 || month > 12 || day < 1 || day > 31)
+        return false;
+    *hasTime = false;
+    if (text.String()[used] == ' ') {
+        if (sscanf(text.String() + used + 1, "%d:%d:%d", &hour, &minute, &second) < 2)
+            return false;
+        *hasTime = true;
+    } else if (text.String()[used] != '\0')
+        return false;
+    *seconds = DaysFromCivil(year, (unsigned)month, (unsigned)day) * 86400 + hour * 3600 + minute * 60 + second;
+    return true;
+}
+
+BString FormatMoment(long long seconds, bool withTime)
+{
+    long long days = seconds >= 0 ? seconds / 86400 : -((-seconds + 86399) / 86400);
+    const long long rest = seconds - days * 86400;
+    int year, month, day;
+    CivilFromDays(days, &year, &month, &day);
+    BString text;
+    if (withTime)
+        text.SetToFormat("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, (int)(rest / 3600), (int)(rest % 3600 / 60), (int)(rest % 60));
+    else
+        text.SetToFormat("%04d-%02d-%02d", year, month, day);
+    return text;
+}
+
+}	// namespace
+
 status_t ShojiWindow::Commit(const char* name)
 {
     fDirty.erase(name);
@@ -511,6 +696,35 @@ status_t ShojiWindow::Commit(const char* name)
     fValues.FindString(name, &stored);
     if (text == stored)
         return B_OK;
+
+    // the end is not before the start: an end that is typed before the start becomes the start; a start that is moved past the end takes the end with it (it keeps the length that the
+    // event had, as a calendar does)
+    BString followedEnd;
+    const bool isStart = strcmp(name, "schema:startDate") == 0;
+    if (isStart || strcmp(name, "schema:endDate") == 0) {
+        BView* otherView = FindControl(isStart ? "schema:endDate" : "schema:startDate");
+        BString other;
+        long long mine, theirs;
+        bool mineTime, theirsTime;
+        if (otherView != NULL && shoji::GetControlValue(otherView, &other) && ParseMoment(text, &mine, &mineTime) && ParseMoment(other, &theirs, &theirsTime)
+                && (isStart ? theirs < mine : mine < theirs)) {
+            if (isStart) {
+                BString oldStart, oldEnd;
+                long long was, wasEnd;
+                bool wasTime, wasEndTime;
+                fValues.FindString("schema:startDate", &oldStart);
+                fValues.FindString("schema:endDate", &oldEnd);
+                const long long length = ParseMoment(oldStart, &was, &wasTime) && ParseMoment(oldEnd, &wasEnd, &wasEndTime) && wasEnd >= was ? wasEnd - was : 0;
+                followedEnd = FormatMoment(mine + length, mineTime || theirsTime);
+                shoji::SetControlValue(otherView, followedEnd.String());
+            } else {
+                text = other;
+                shoji::SetControlValue(view, text.String());
+                if (text == stored)
+                    return B_OK;
+            }
+        }
+    }
 
     BNode node(&fRef);
     status_t result = node.InitCheck();
@@ -534,6 +748,10 @@ status_t ShojiWindow::Commit(const char* name)
             fValues.AddString(name, current);
     }
     UpdateRevertButton();
+
+    // the end that moved with the start is stored as it is typed
+    if (!followedEnd.IsEmpty())
+        Commit("schema:endDate");
 
     return B_OK;
 }
@@ -577,6 +795,11 @@ void ShojiWindow::Revert()
 // The new value is also the one that Revert goes back to: it must not put back what others have replaced since.
 void ShojiWindow::ExternalChange(const char* name)
 {
+    // the text of a time that is not exact is shown in the field of the time: a change of the one is a change of the other
+    if (const char* time = sen::timeattr::PrimaryOf(name)) {
+        ExternalChange(time);
+        return;
+    }
     const ShojiAttribute* attr = FindAttribute(name);
     BNode node(&fRef);
     if (attr == NULL || node.InitCheck() != B_OK)
@@ -653,12 +876,13 @@ void ShojiWindow::AskAboutExternalChange(const ShojiAttribute& attr, const char*
     theirs.Truncate(60);
     yours.Truncate(60);
 
-    BString msg("'");
-    msg << attr.label << "' was changed outside of Shoji while you are editing it.\n\n"
-        << "New value:  " << (theirs.IsEmpty() ? "(removed)" : theirs.String()) << "\n"
-        << "Your value:  " << (yours.IsEmpty() ? "(empty)" : yours.String());
+    BString msg(B_TRANSLATE("'%label%' was changed outside of Shoji while you are editing it.\n\n"
+        "New value:  %theirs%\nYour value:  %yours%"));
+    msg.ReplaceAll("%label%", attr.label.String());
+    msg.ReplaceAll("%theirs%", theirs.IsEmpty() ? B_TRANSLATE("(removed)") : theirs.String());
+    msg.ReplaceAll("%yours%", yours.IsEmpty() ? B_TRANSLATE("(empty)") : yours.String());
 
-    BAlert* alert = new BAlert("Attribute changed", msg.String(), "Keep my change", "Use the new value", NULL,
+    BAlert* alert = new BAlert("Attribute changed", msg.String(), B_TRANSLATE("Keep my change"), B_TRANSLATE("Use the new value"), NULL,
         B_WIDTH_AS_USUAL, B_WARNING_ALERT);
     alert->SetShortcut(0, B_ESCAPE);
 
@@ -764,12 +988,14 @@ status_t ShojiWindow::GetMimeTypeForRef(const entry_ref* ref, char* mimeType) {
 void ShojiWindow::ShowUserError(const char *title, const char* message, status_t errorCode)
 {
     BString msg(message);
-    msg.Append("\nDetail: ").Append(strerror(errorCode));
+    BString detail(B_TRANSLATE("Detail: %detail%"));
+    detail.ReplaceAll("%detail%", strerror(errorCode));
+    msg.Append("\n").Append(detail);
 
     BAlert* alert = new BAlert(
         title,
         msg.String(),
-        "Oh no.");
+        B_TRANSLATE("Oh no."));
 
     alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
     alert->Go();
@@ -778,14 +1004,17 @@ void ShojiWindow::ShowUserError(const char *title, const char* message, status_t
 // does not block the window, it may be shown while the window is left.
 void ShojiWindow::ShowUserEditError(const ShojiAttribute& attr, status_t errorCode)
 {
-    BString msg("Could not store the value of '");
-    msg << attr.label << "'.\n";
+    BString msg(B_TRANSLATE("Could not store the value of '%label%'.\n"));
+    msg.ReplaceAll("%label%", attr.label.String());
     if (errorCode == B_BAD_VALUE)
-        msg << "The value is not valid for this attribute, the previous one has been restored.";
-    else
-        msg << "Detail: " << strerror(errorCode);
+        msg << B_TRANSLATE("The value is not valid for this attribute, the previous one has been restored.");
+    else {
+        BString detail(B_TRANSLATE("Detail: %detail%"));
+        detail.ReplaceAll("%detail%", strerror(errorCode));
+        msg << detail;
+    }
 
-    BAlert* alert = new BAlert("Error storing value", msg.String(), "Oh no.");
+    BAlert* alert = new BAlert("Error storing value", msg.String(), B_TRANSLATE("Oh no."));
     alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
     alert->Go(NULL);
 }

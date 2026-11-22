@@ -16,6 +16,11 @@
 #include <stdio.h>
 
 #include "ShojiAssociations.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiSettingsWindow"
+
 
 extern const char* kApplicationSignature;
 
@@ -25,21 +30,21 @@ static const uint32 kMsgChoice = 'SSch';
 
 ShojiSettingsWindow::ShojiSettingsWindow()
     :
-    BWindow(BRect(200, 200, 560, 400), "Shoji Settings", B_TITLED_WINDOW,
+    BWindow(BRect(200, 200, 560, 400), B_TRANSLATE("Shoji Settings"), B_TITLED_WINDOW,
         B_NOT_ZOOMABLE | B_NOT_RESIZABLE | B_AUTO_UPDATE_SIZE_LIMITS | B_CLOSE_ON_ESCAPE)
 {
     fSettings.Load();
 
-    BStringView* heading = new BStringView("heading", "Associate Shoji with:");
+    BStringView* heading = new BStringView("heading", B_TRANSLATE("Associate Shoji with:"));
     heading->SetFont(be_bold_font);
 
-    fNothing = new BRadioButton("nothing", "No file types", new BMessage(kMsgChoice));
-    fUnassociated = new BRadioButton("unassociated", "All unassociated file types", new BMessage(kMsgChoice));
-    fTemplated = new BRadioButton("templated", "All file types with a template, too", new BMessage(kMsgChoice));
+    fNothing = new BRadioButton("nothing", B_TRANSLATE("No file types"), new BMessage(kMsgChoice));
+    fUnassociated = new BRadioButton("unassociated", B_TRANSLATE("All unassociated file types"), new BMessage(kMsgChoice));
+    fTemplated = new BRadioButton("templated", B_TRANSLATE("All file types with a template, too"), new BMessage(kMsgChoice));
 
-    BStringView* nothingNote = new BStringView("nothingnote", "Shoji opens what it is asked to open (the SEN menus, Open With).");
-    BStringView* unassociatedNote = new BStringView("unassociatednote", "A type that has no template gets a form made from its attributes.");
-    BStringView* templatedNote = new BStringView("templatednote", "Replaces the application of those types, e.g. People for the contacts.");
+    BStringView* nothingNote = new BStringView("nothingnote", B_TRANSLATE("Shoji opens what it is asked to open (the SEN menus, Open With)."));
+    BStringView* unassociatedNote = new BStringView("unassociatednote", B_TRANSLATE("A type that has no template gets a form made from its attributes."));
+    BStringView* templatedNote = new BStringView("templatednote", B_TRANSLATE("Replaces the application of those types, e.g. People for the contacts."));
     for (BStringView* note : {nothingNote, unassociatedNote, templatedNote}) {
         note->SetFont(be_plain_font);
         note->SetHighUIColor(B_PANEL_TEXT_COLOR, B_LIGHTEN_1_TINT);
@@ -48,8 +53,8 @@ ShojiSettingsWindow::ShojiSettingsWindow()
     fStatus = new BStringView("status", "");
     fStatus->SetHighUIColor(B_PANEL_TEXT_COLOR, B_LIGHTEN_1_TINT);
 
-    fDefaults = new BButton("defaults", "Revert to defaults", new BMessage(kMsgDefaults));
-    BButton* ok = new BButton("ok", "OK", new BMessage(kMsgOk));
+    fDefaults = new BButton("defaults", B_TRANSLATE("Revert to defaults"), new BMessage(kMsgDefaults));
+    BButton* ok = new BButton("ok", B_TRANSLATE("OK"), new BMessage(kMsgOk));
     ok->MakeDefault(true);
 
     const float indent = be_control_look->DefaultItemSpacing() * 2;
@@ -101,9 +106,15 @@ void ShojiSettingsWindow::UpdateStatus()
     BString text;
     const int32 count = fSettings.CountAssociated();
     if (count == 0)
-        text = "Shoji is not the default application of any file type.";
-    else
-        text << "Shoji is the default application of " << count << (count == 1 ? " file type." : " file types.");
+        text = B_TRANSLATE("Shoji is not the default application of any file type.");
+    else if (count == 1)
+        text = B_TRANSLATE("Shoji is the default application of 1 file type.");
+    else {
+        text = B_TRANSLATE("Shoji is the default application of %count% file types.");
+        BString number;
+        number << count;
+        text.ReplaceAll("%count%", number.String());
+    }
     fStatus->SetText(text.String());
 }
 

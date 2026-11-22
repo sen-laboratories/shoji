@@ -8,12 +8,17 @@
 #include <string.h>
 
 #include "ShojiDuration.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiDurationControl"
+
 
 ShojiDurationControl::ShojiDurationControl(const char* name, const char* label, BMessage* message)
     :
     BTextControl(name, label, "", message)
 {
-    SetToolTip("Hours, minutes and seconds: 01:55:00");
+    SetToolTip(B_TRANSLATE("Hours, minutes and seconds: 01:55:00"));
 }
 
 

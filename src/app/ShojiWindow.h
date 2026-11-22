@@ -10,11 +10,14 @@
 #include <Window.h>
 
 #include <map>
+#include <vector>
 #include <set>
 #include <string>
 
 class BButton;
 class BMenuBar;
+
+#include <sen/SenFilterMenu.h>
 
 #include "ShojiAttributes.h"
 #include "ShojiView.h"
@@ -32,6 +35,7 @@ class ShojiWindow : public BWindow
         virtual			    ~ShojiWindow();
 
         virtual void        MessageReceived(BMessage* message);
+        virtual void        DispatchMessage(BMessage* message, BHandler* handler);
         virtual bool        QuitRequested();
         virtual void        WindowActivated(bool active);
         virtual void        FrameResized(float width, float height);
@@ -51,6 +55,8 @@ class ShojiWindow : public BWindow
         BView*              FindControl(const char* name);
         const ShojiAttribute* FindAttribute(const char* name) const;
         bool                HasChanged(const char* name);
+        /** Enter completes the edit of a day or a time, Escape puts back what the field had (what is stored): true if the key was used */
+        bool                HandleEditKey(BMessage* message);
 
         // write back to the attributes of the file
         status_t            Commit(const char* name);
@@ -86,5 +92,7 @@ class ShojiWindow : public BWindow
         BGroupView*         fPanel;
         float               fPictureHeight;
         sen::StripeView*    fStripe;            // the picture on the left, which is replaced when the thumbnail of the file is written (the place enricher does that a moment after the window was opened)
+        BString             fMimeType;          // the type of the file shown
+        std::vector<sen::FilterPopUpMenu*> fFilterMenus;    // the lists of common values that follow the text fields of attributes with values (ConnectControls)
         BString             fPendingPlace;  // the text of a Location that the place enricher is looking up: its place is opened when it is linked
 };

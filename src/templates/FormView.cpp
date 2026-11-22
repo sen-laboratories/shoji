@@ -2,13 +2,18 @@
  * SPDX-License-Identifier: MIT
  * SPDX-FileCopyrightText: 2026 SEN Labs e.U.
  */
+#include <Button.h>
+#include <math.h>
 #include <ControlLook.h>
 #include <Font.h>
 #include <GridLayout.h>
+#include <GroupLayout.h>
+#include <GroupView.h>
 #include <StringView.h>
 #include <TextControl.h>
 
 #include "FormView.h"
+#include "../app/ShojiAttributes.h"
 
 FormView::FormView(const char* name) : BGridView(be_control_look->DefaultItemSpacing(), be_control_look->DefaultLabelSpacing()), fRows(0)
 {

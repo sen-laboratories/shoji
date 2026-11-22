@@ -31,7 +31,13 @@
 #include "../templates/document/scientific-paper/PaperView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.book/BookView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.person/PersonView.h"
+#include "../templates/entity/x-vnd.sen-labs.entity.event/EventView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceView.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiApp"
+
 
 const char* kApplicationSignature = "application/x-vnd.sen-labs.shoji";
 
@@ -52,6 +58,7 @@ BView* CreatePersonView() { return new PersonView(); }
 BView* CreatePaperView() { return new PaperView(); }
 BView* CreatePlaceView() { return new PlaceView(true); }
 BView* CreateLocationView() { return new PlaceView(false); }
+BView* CreateEventView() { return new EventView(); }
 
 const TemplateSpec kTemplates[] = {
     { "application/x-person", CreateContactView },
@@ -60,6 +67,7 @@ const TemplateSpec kTemplates[] = {
     { "document/scientific-paper", CreatePaperView },
     { "entity/x-vnd.sen-labs.entity.place", CreatePlaceView },
     { "entity/x-vnd.sen-labs.entity.location", CreateLocationView },
+    { "entity/x-vnd.sen-labs.entity.event", CreateEventView },
 };
 
 }   // namespace
@@ -238,8 +246,8 @@ void ShojiApp::RefsReceived(BMessage *message)
 
     if (opened == 0) {
         BAlert* alert = new BAlert("Error launching Shoji",
-            "Failed to resolve input file.",
-            "Oh no.");
+            B_TRANSLATE("Failed to resolve input file."),
+            B_TRANSLATE("Oh no."));
         alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
         alert->Go();
 

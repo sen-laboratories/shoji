@@ -28,6 +28,11 @@
 
 #include <sen/SenMessagePath.h>
 #include <sen/SenSettingsForm.h>
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiMessageInspector"
+
 
 using namespace sen::settings;
 namespace form = sen::settings::form;
@@ -432,13 +437,13 @@ private:
         RowItem* item = dynamic_cast<RowItem*>(ItemAt(CurrentSelection()));
         const bool selected = item != NULL;
         BPopUpMenu* menu = new BPopUpMenu("row", false, false);
-        BMenuItem* edit = new BMenuItem("Edit", new BMessage(ShojiMessageInspector::kEdit));
+        BMenuItem* edit = new BMenuItem(B_TRANSLATE("Edit"), new BMessage(ShojiMessageInspector::kEdit));
         edit->SetEnabled(fEditable && selected && item->GetRow().editable);
-        BMenuItem* copyPath = new BMenuItem("Copy path key", new BMessage(ShojiMessageInspector::kCopyPath));
+        BMenuItem* copyPath = new BMenuItem(B_TRANSLATE("Copy path key"), new BMessage(ShojiMessageInspector::kCopyPath));
         copyPath->SetEnabled(selected && item->GetRow().leaf.addressable);
-        BMenuItem* copyValue = new BMenuItem("Copy value", new BMessage(ShojiMessageInspector::kCopyValue));
+        BMenuItem* copyValue = new BMenuItem(B_TRANSLATE("Copy value"), new BMessage(ShojiMessageInspector::kCopyValue));
         copyValue->SetEnabled(selected);
-        BMenuItem* remove = new BMenuItem("Delete", new BMessage(ShojiMessageInspector::kRemove));
+        BMenuItem* remove = new BMenuItem(B_TRANSLATE("Delete"), new BMessage(ShojiMessageInspector::kRemove));
         remove->SetEnabled(fEditable && selected && item->GetRow().leaf.addressable);
         menu->AddItem(edit);
         menu->AddSeparatorItem();

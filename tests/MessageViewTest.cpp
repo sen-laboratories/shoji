@@ -857,6 +857,201 @@ TestReorder(TestWindow* w)
 
 
 // a table that the schema has and the message has no rows for is shown empty, with the titles of its columns; a cell whose column has `busy_field` shows a spinner while the field of its row is true
+// Master and detail by a message: the table has `update_msg`, the field `bind_to_update_msg`. Selecting a row hands the field its part of the row (`value`, `enabled`); with no row it is empty and disabled; the
+// user's edit answers the table, which changes the row (and tells the owner as any cell). The table does not know the field, and the field does not know the table.
+static void
+TestBinding(TestWindow* w)
+{
+    BMessage settings, schema;
+    settings.AddString("title", "x");
+    for (const char* each : {"a", "b"}) {
+        BMessage row;
+        row.AddBool("enabled", true);
+        row.AddString("name", each);
+        row.AddString("status", strcmp(each, "a") == 0 ? "OK" : "No answer");
+        row.AddString("status_state", strcmp(each, "a") == 0 ? "ok" : "error");
+        row.AddString("status_detail", strcmp(each, "a") == 0 ? "Answered in 0.3 s." : "Timed out.");
+        BMessage part;
+        part.AddString("value", strcmp(each, "a") == 0 ? "key-a" : "");
+        part.AddBool("enabled", strcmp(each, "a") == 0);        // (the second server needs no key)
+        row.AddMessage("key", &part);
+        BMessage flag;                                          // (a part with a value of another type: a bool, for a check box)
+        flag.AddBool("value", strcmp(each, "a") == 0);
+        row.AddMessage("flag", &flag);
+        BMessage addr;                                          // (a part with a default: the revert button)
+        addr.AddString("value", strcmp(each, "a") == 0 ? "http://changed" : "http://standard");
+        addr.AddString("default", "http://standard");
+        row.AddMessage("addr", &addr);
+        settings.AddMessage("servers", &row);
+    }
+    settings.AddString("api_key", "");
+    settings.AddBool("flag_box", false);
+    settings.AddString("addr", "");
+    settings.AddBool("addr_revert", false);
+    settings.AddBool("test_all", false);
+    BMessage table;
+    table.AddString(form::kAttrKind, form::kKindTable);
+    table.AddString(form::kAttrUpdateMsg, "TSTu");
+    schema.AddMessage("servers", &table);
+    BMessage nameColumn;
+    nameColumn.AddBool(form::kAttrReadOnly, true);
+    nameColumn.AddInt32(form::kAttrOrder, 0);
+    schema.AddMessage("servers.name", &nameColumn);
+    BMessage statusColumn;
+    statusColumn.AddBool(form::kAttrReadOnly, true);
+    statusColumn.AddString(form::kAttrStateField, "status_state");
+    statusColumn.AddString(form::kAttrDetailField, "status_detail");
+    statusColumn.AddInt32(form::kAttrOrder, 1);
+    schema.AddMessage("servers.status", &statusColumn);
+    for (const char* hiddenName : {"servers.status_state", "servers.status_detail"}) {
+        BMessage hidden;
+        hidden.AddBool(form::kAttrHidden, true);
+        schema.AddMessage(hiddenName, &hidden);
+    }
+    BMessage field;
+    field.AddString(form::kAttrLabel, "API key");
+    field.AddString(form::kAttrBindToUpdateMsg, "TSTu");
+    field.AddString(form::kAttrFieldId, "key");
+    field.AddString(form::kAttrBeside, "flag_box");		// (in the line of the check box)
+    schema.AddMessage("api_key", &field);
+    BMessage flagField;
+    flagField.AddString(form::kAttrLabel, "Flag");
+    flagField.AddString(form::kAttrBindToUpdateMsg, "TSTu");
+    flagField.AddString(form::kAttrFieldId, "flag");
+    schema.AddMessage("flag_box", &flagField);
+    BMessage addrField;
+    addrField.AddString(form::kAttrLabel, "Server address");
+    addrField.AddString(form::kAttrBindToUpdateMsg, "TSTu");
+    schema.AddMessage("addr", &addrField);
+    BMessage revert;
+    revert.AddString(form::kAttrLabel, "Revert");
+    revert.AddString(form::kAttrKind, form::kKindButton);
+    revert.AddString(form::kAttrBeside, "addr");
+    revert.AddString(form::kAttrBindToUpdateMsg, "TSTu");
+    revert.AddString(form::kAttrFieldId, "addr");
+    schema.AddMessage("addr_revert", &revert);
+    BMessage testAll;
+    testAll.AddString(form::kAttrLabel, "Test availability");
+    testAll.AddString(form::kAttrKind, form::kKindButton);
+    testAll.AddString(form::kAttrBeside, "servers");
+    schema.AddMessage("test_all", &testAll);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+
+    ShojiTableControl* servers = Table(w, "servers");
+    BTextControl* key = TextField(w, "api_key");
+    CHECK(servers != NULL && key != NULL && servers->CountRows() == 2 && servers->CountColumns() == 3);		// (enabled, name, status: the key is a message of the row, not a column)
+    // the status column: the icon state and the tool tip text of its row
+    CHECK(servers->CellAt(0, 2)->text == "OK" && servers->CellAt(0, 2)->state == "ok" && servers->CellAt(0, 2)->detail == "Answered in 0.3 s.");
+    CHECK(servers->CellAt(1, 2)->state == "error" && servers->CellAt(1, 2)->detail == "Timed out.");
+    // no row selected: nothing in the field, and it cannot be edited
+    CHECK(servers->SelectedRow() < 0);
+    CHECK(!key->IsEnabled() && strcmp(key->Text(), "") == 0);
+    // a row is selected: its part
+    servers->SelectRow(0);
+    w->Settle();
+    CHECK(key->IsEnabled() && strcmp(key->Text(), "key-a") == 0);
+    // the row says that it needs no key: the field is disabled
+    servers->SelectRow(1);
+    w->Settle();
+    CHECK(!key->IsEnabled() && strcmp(key->Text(), "") == 0);
+    // typing a key answers the table, which changes the row that it was selected for and tells the owner as it does for a cell
+    servers->SelectRow(0);
+    w->Settle();
+    w->Reset();
+    w->Type("api_key", "key-b");
+    CHECK(w->lastPath == "servers_00.key.value" && w->lastValue == "key-b");
+    CHECK(w->Text("servers_00.key.value") == "key-b" && w->Text("servers_01.key.value") == "");
+    CHECK(w->Text("api_key") == "");		// (the field itself keeps nothing in the working copy)
+    // another row and back: what the row holds
+    servers->SelectRow(1);
+    w->Settle();
+    servers->SelectRow(0);
+    w->Settle();
+    CHECK(strcmp(key->Text(), "key-b") == 0);
+    // the owner never hears of the field itself
+    CHECK(w->lastPath != "api_key");
+    // a control of another kind, with a value of another type: the same message, the answer has the type that the update had
+    BCheckBox* flagBox = dynamic_cast<BCheckBox*>(w->view->ControlFor("flag_box"));
+    CHECK(flagBox != NULL && flagBox->Value() == B_CONTROL_ON && flagBox->IsEnabled());		// (row 0 is selected)
+    w->Reset();
+    flagBox->SetValue(B_CONTROL_OFF);
+    flagBox->Invoke();
+    w->Settle();
+    CHECK(w->lastPath == "servers_00.flag.value" && w->lastValue == "false");
+    CHECK(w->Text("servers_00.flag.value") == "false" && w->Text("servers_01.flag.value") == "false");
+    servers->SelectRow(1);
+    w->Settle();
+    servers->SelectRow(0);
+    w->Settle();
+    CHECK(flagBox->Value() == B_CONTROL_OFF);
+    // a revert button beside a field: enabled while the value is not the default; pressing it answers with the default
+    BTextControl* addr = TextField(w, "addr");
+    BButton* revertButton = dynamic_cast<BButton*>(w->view->ControlFor("addr_revert"));
+    CHECK(addr != NULL && revertButton != NULL && strcmp(addr->Text(), "http://changed") == 0 && revertButton->IsEnabled());
+    CHECK(revertButton != NULL && revertButton->Parent() == addr->Parent());		// (in the same cell: beside the field)
+    w->Reset();
+    if (revertButton != NULL)
+        revertButton->Invoke();
+    w->Settle();
+    CHECK(w->lastPath == "servers_00.addr.value" && w->lastValue == "http://standard" && w->actions == 0);
+    CHECK(strcmp(TextField(w, "addr")->Text(), "http://standard") == 0 && !dynamic_cast<BButton*>(w->view->ControlFor("addr_revert"))->IsEnabled());
+    // a button beside a table stands in the line of its label, and tells the owner as any button
+    BButton* testButton = dynamic_cast<BButton*>(w->view->ControlFor("test_all"));
+    CHECK(testButton != NULL && testButton->Parent() != NULL && testButton->Parent() != servers->Parent());		// (in the line of the label, not in a line of its own)
+    // the button stands in the column of the controls, at its left edge (not at the right end of the table); the key is in the line of the check box
+    BView* titleLine = testButton != NULL ? testButton->Parent() : NULL;
+    BView* flagLine = w->view->ControlFor("flag_box");
+    BTextControl* keyField = TextField(w, "api_key");
+    CHECK(titleLine != NULL && addr != NULL && fabs(testButton->ConvertToScreen(BPoint(0, 0)).x - addr->ConvertToScreen(BPoint(0, 0)).x) < 3);
+    CHECK(flagLine != NULL && keyField != NULL && fabs(flagLine->ConvertToScreen(BPoint(0, 0)).y - keyField->ConvertToScreen(BPoint(0, 0)).y) < 12 && keyField->ConvertToScreen(BPoint(0, 0)).x > flagLine->ConvertToScreen(BPoint(0, 0)).x);
+    w->Reset();
+    if (testButton != NULL)
+        testButton->Invoke();
+    w->Settle();
+    CHECK(w->actions == 1);
+    // the form is made again with new data (the plugin answered with a status): the selected row stays
+    BMessage again = w->view->Settings();
+    w->view->SetData(again, &schema, NULL);
+    w->Settle();
+    CHECK(Table(w, "servers")->SelectedRow() == 0 && strcmp(TextField(w, "api_key")->Text(), "key-b") == 0 && TextField(w, "api_key")->IsEnabled());
+}
+
+
+static void
+TestPopup(TestWindow* w)
+{
+    BMessage settings, schema;
+    settings.AddString("who", "Jane");
+    settings.AddString("other", "x");
+    BMessage popup;
+    popup.AddString(form::kAttrKind, form::kKindPopup);
+    popup.AddString(form::kAttrChoices, "Jane Roe <jane@example.org>");
+    popup.AddString(form::kAttrChoices, "Max Muster <max@example.org>");
+    schema.AddMessage("who", &popup);
+    w->view->SetData(settings, &schema, NULL);
+    w->Settle();
+    BTextControl* who = TextField(w, "who");
+    CHECK(who != NULL && strcmp(who->Text(), "Jane") == 0 && w->view->CountPopupMenus() == 1);		// (a text field with a list that follows it)
+    // typed text is taken as in any text field (other text is allowed)
+    w->Reset();
+    w->Type("who", "Somebody Else");
+    CHECK(w->Text("who") == "Somebody Else" && w->changed == 1);
+    // a value of the list: the field has it, and the owner is told
+    w->Reset();
+    BMessage pick('MVpu');
+    pick.AddString("path", "who");
+    pick.AddString("value", "Max Muster <max@example.org>");
+    w->view->MessageReceived(&pick);
+    w->Settle();
+    CHECK(strcmp(who->Text(), "Max Muster <max@example.org>") == 0 && w->Text("who") == "Max Muster <max@example.org>" && w->changed == 1 && w->lastPath == "who");
+    // the form made again: one list again, not two
+    w->view->SetData(w->view->Settings(), &schema, NULL);
+    w->Settle();
+    CHECK(w->view->CountPopupMenus() == 1);
+}
+
+
 static void
 TestEmptyAndBusy(TestWindow* w)
 {
@@ -1149,6 +1344,8 @@ int main(int argc, char** argv)
     TestButton(window);
     TestReorder(window);
     TestEmptyAndBusy(window);
+    TestBinding(window);
+    TestPopup(window);
     window->Quit();
     TestNoTree();
 

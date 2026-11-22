@@ -12,10 +12,14 @@
 #include <string>
 #include <vector>
 
+class BButton;
+class BTextControl;
+namespace sen { class FilterPopUpMenu; }
 class BGridView;
 class BOutlineListView;
 class BScrollView;
 class BSplitView;
+class ShojiChangeHandler;
 class ShojiTableControl;
 
 /**
@@ -37,6 +41,7 @@ class ShojiTableControl;
  * The view does not use the application it is in (be_app, its catalog or its resources): it can be loaded into the process of another program, see the spec.
  */
 class ShojiMessageView : public BGroupView {
+    friend class ShojiChangeHandler;
 public:
                             ShojiMessageView(const char* name = "message view");
     virtual                ~ShojiMessageView();
@@ -78,7 +83,10 @@ public:
     static BArchivable*     Instantiate(BMessage* archive);
     virtual status_t        Archive(BMessage* archive, bool deep = true) const;
 
+    /** the number of fields that have a list that follows the text (`popup`), for tests */
+    int32                   CountPopupMenus() const { return (int32)fFilterMenus.size(); }
     virtual void            AttachedToWindow();
+    virtual void            DetachedFromWindow();
     virtual void            MessageReceived(BMessage* message);
 
 private:
@@ -87,6 +95,7 @@ private:
         std::string         node;           ///< the node it is in
         std::string         name;           ///< the field
         std::string         kind;           ///< `table` or `properties`
+        uint32              command = 0;    ///< the command of the message that it sends when its selection changes (`update_msg`), 0 if it sends none
     };
 
     struct Known {
@@ -105,14 +114,42 @@ private:
     void                    _ShowNode(const std::string& path);
     void                    _FillPane(BGridView* pane, const std::string& node);
     void                    _Learn(const std::string& node, const BMessage& message);
+    /** the buttons that the schema puts beside a field (`beside`): made here, placed by the field */
+    /** a text field without a label of its own, as it stands beside a check box */
+    BTextControl*           _PlainTextControl(const std::string& path, const std::string& text, bool secret, const char* help);
+    std::vector<BButton*>   _BesideButtons(const std::string& node, const std::string& key, const std::string& partner);
     void                    _AddTable(BGridView* pane, int32* row, const std::string& node, const std::string& key, const std::string& name, const std::string& kind);
     void                    _FillTable(ShojiTableControl* control, const Table& table);
     /** makes the rows of the tables again from the working copy; of the tables that have the cell `path`, or all of them if it is empty */
     void                    _RefreshTables(const std::string& path);
+    // Master and detail (SenSettingsForm.h, `update_msg` and `bind_to_update_msg`): a message command ties a control (a table) to the controls that depend on it.
+    /** the controls of the pane that listen to a command are found in the schema */
+    void                    _RegisterBindings();
+    /** a table tells its observers what it holds (BHandler::SendNotices): the parts of the selected row that are messages, or nothing when no row is selected */
+    void                    _PublishUpdate(const std::string& tablePath);
+    void                    _PublishAll();
+    /** the notice of a master reaches the change handler of the form */
+    void                    _ApplyNotice(const BMessage& notice);
+    /** the bound controls of a command take what the update has for them */
+    void                    _ApplyUpdates(uint32 command, const BMessage& update);
+    /** a bound control takes what the update message has for it (@p part: NULL, nothing: it is emptied and disabled) */
+    void                    _ApplyUpdate(const std::string& path, const BMessage* part);
+    /** a bound control was changed by the user: it tells the master of the update (kUpdated), which changes itself from it */
+    void                    _Answer(const std::string& path, const std::string& text);
+    /** the revert button of a field was pressed: it answers with the default that the update gave */
+    void                    _AnswerDefault(const std::string& path);
+    bool                    _OpenUrlOf(const std::string& path);
+    void                    _TakeAnswer(const BMessage& answer);
+    bool                    _IsBound(const std::string& path) const;
+    void                    _SetControlText(BView* control, const std::string& text);
     void                    _AddField(BGridView* pane, int32* row, const std::string& node, const std::string& key, const Known& field, const BMessage& message);
 
-    void                    _ApplyText(const std::string& path, const std::string& text);
+    /** a control was changed by the user (a text, a check box, a choice, a number, a date...: the value comes as text and is converted to the type of the field) */
+    void                    _ControlChanged(const std::string& path, const std::string& text);
     void                    _ApplyList(const std::string& node, const std::string& name);
+    /** the lists of the `popup` fields follow their text fields (the pane must be in the window) */
+    void                    _AttachPopups();
+    void                    _DeletePopups();
     void                    _Refuse(const std::string& path, const std::string& text, status_t status);
     void                    _Show(const std::string& path);
     /** enables and disables the controls of the shown node whose schema says `enabled_when` (a field of the same message that has a value) */
@@ -136,7 +173,34 @@ private:
     BString                 fRootLabel;
     std::string             fNode;                      ///< the path of the node that is shown
     std::vector<std::string> fTextPaths;                ///< the text fields of the pane that is shown
+    std::map<std::string, std::string> fBesideFields;           ///< the text fields that stand in the line of a check box (`beside`): by the name of the check box
+    /** the text fields of kind `popup` of the pane that is shown: they get the list that follows the text when the pane is in the window */
+    struct Popup {
+        std::string                 path;
+        std::vector<std::string>    values;
+        bool                        allowCustom = true;
+        bool                        allowMultiple = false;
+        BTextControl*               control = NULL;
+    };
+    std::vector<Popup>      fPopups;
+    std::vector<sen::FilterPopUpMenu*>  fFilterMenus;
+    std::map<std::string, std::vector<std::string> > fBeside;   ///< the buttons that stand beside a field of the pane that is shown (`beside`): by the name of the field
     std::vector<Table>      fTables;                    ///< the tables of the pane that is shown
+    struct Binding {                                    ///< a control that listens to a command (`bind_to_update_msg`)
+        std::string path;                               ///< the control
+        uint32      command = 0;
+        std::string fieldId;                            ///< the name of the part of the message that is meant for it
+        BMessenger  reply;                              ///< where the last update says that the answers go (`reply_to`)
+        BMessage    last;                               ///< the part of the last update: the type of its value is the type of the answer
+        bool        haveSource = false;
+    };
+    std::vector<Binding>    fBindings;
+    ShojiChangeHandler*     fChange = NULL;             ///< the one handler of the form that the masters tell their updates (it is the observer of every table with `update_msg`)
+    std::map<std::string, int32> fTableSelection;       ///< the row that was selected in a table, by its path: kept when the form is made again (the plugin answered with its new state)
+    struct Waiting {                                    ///< a button that was pressed and has no answer yet: what its line said before (restored by kActionDone)
+        std::string button, line, text, tip;
+    };
+    std::vector<Waiting>    fWaitingButtons;
     std::map<std::string, std::vector<float> > fTableWidths;    ///< the widths that the user gave the columns of a table, by its path: kept when the pane is made again
 
     BSplitView*             fSplit;

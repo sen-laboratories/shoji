@@ -33,7 +33,7 @@ APP_MIME_SIG = application/x-vnd.sen-labs.shoji
 #	means this Makefile will not work correctly if two source files with the
 #	same name (source.c or source.cpp) are included from different directories.
 #	Also note that spaces in folder names do not work well with this Makefile.
-SRCS =  src/app/ShojiApp.cpp src/app/ShojiAssociations.cpp src/app/ShojiAttributes.cpp src/app/ShojiSettings.cpp src/app/ShojiSettingsWindow.cpp src/app/ShojiWindow.cpp src/app/ShojiGenericFormView.cpp src/app/ShojiListControl.cpp src/app/ShojiLinkLabel.cpp src/app/ShojiTableControl.cpp src/app/ShojiDateControl.cpp src/app/ShojiDurationControl.cpp src/message/ShojiMessageView.cpp src/message/ShojiMessageInspector.cpp src/message/ShojiMessageWindow.cpp src/app/ShojiTemplateView.cpp src/templates/FormView.cpp src/templates/application/x-person/ContactView.cpp src/templates/entity/x-vnd.sen-labs.entity.book/BookView.cpp src/templates/entity/x-vnd.sen-labs.entity.person/PersonView.cpp src/templates/entity/x-vnd.sen-labs.entity.place/PlaceView.cpp src/templates/entity/x-vnd.sen-labs.entity.place/PlaceMapView.cpp src/templates/document/scientific-paper/PaperView.cpp
+SRCS =  src/app/ShojiApp.cpp src/app/ShojiAssociations.cpp src/app/ShojiAttributes.cpp src/app/ShojiSettings.cpp src/app/ShojiSettingsWindow.cpp src/app/ShojiWindow.cpp src/app/ShojiGenericFormView.cpp src/app/ShojiListControl.cpp src/app/ShojiLinkLabel.cpp src/app/ShojiTableControl.cpp src/app/ShojiStateIcon.cpp src/app/ShojiDateControl.cpp src/app/ShojiDateTimeControl.cpp src/app/ShojiDurationControl.cpp src/message/ShojiMessageView.cpp src/message/ShojiMessageInspector.cpp src/message/ShojiMessageWindow.cpp src/app/ShojiTemplateView.cpp src/templates/FormView.cpp src/templates/application/x-person/ContactView.cpp src/templates/entity/x-vnd.sen-labs.entity.book/BookView.cpp src/templates/entity/x-vnd.sen-labs.entity.person/PersonView.cpp src/templates/entity/x-vnd.sen-labs.entity.event/EventView.cpp src/templates/entity/x-vnd.sen-labs.entity.place/PlaceView.cpp src/templates/entity/x-vnd.sen-labs.entity.place/PlaceMapView.cpp src/templates/document/scientific-paper/PaperView.cpp
 
 #	Specify the resource definition files to use. Full or relative paths can be
 #	used.
@@ -59,7 +59,7 @@ RSRCS =
 #	- 	if your library does not follow the standard library naming scheme,
 #		you need to specify the path to the library and it's name.
 #		(e.g. for mylib.a, specify "mylib.a" or "path/mylib.a")
-LIBS =  be bnetapi translation shared $(STDCPPLIBS)
+LIBS =  be bnetapi translation shared localestub $(STDCPPLIBS)
 
 #	Specify additional paths to directories following the standard libXXX.so
 #	or libXXX.a naming scheme. You can specify full paths or paths relative
@@ -87,7 +87,7 @@ OPTIMIZE :=
 # 	will recreate only the "locales/en.catkeys" file. Use it as a template
 # 	for creating catkeys for other languages. All localization files must be
 # 	placed in the "locales" subdirectory.
-LOCALES =
+LOCALES = en
 
 #	Specify all the preprocessor symbols to be defined. The symbols will not
 #	have their values set automatically; you must supply the value (if any) to

@@ -28,6 +28,11 @@
 #include "../app/ShojiApp.h"
 #include "ShojiMessageInspector.h"
 #include "ShojiMessageView.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiMessageWindow"
+
 
 namespace form = sen::settings::form;
 
@@ -59,23 +64,23 @@ ShojiMessageWindow::ShojiMessageWindow(const entry_ref& ref, const BMessage& dat
     fWritable = volume.InitCheck() == B_OK && !volume.IsReadOnly() && path.InitCheck() == B_OK && access(path.Path(), W_OK) == 0;
 
     fMenuBar = new BMenuBar("menubar");
-    BMenu* menu = new BMenu("File");
-    BMenuItem* about = new BMenuItem("About Shoji", new BMessage(B_ABOUT_REQUESTED));
+    BMenu* menu = new BMenu(B_TRANSLATE("File"));
+    BMenuItem* about = new BMenuItem(B_TRANSLATE("About Shoji"), new BMessage(B_ABOUT_REQUESTED));
     about->SetTarget(be_app);
     menu->AddItem(about);
-    BMenuItem* settings = new BMenuItem("Settings" B_UTF8_ELLIPSIS, new BMessage(kMsgShowSettings), ',');
+    BMenuItem* settings = new BMenuItem(B_TRANSLATE("Settings" B_UTF8_ELLIPSIS), new BMessage(kMsgShowSettings), ',');
     settings->SetTarget(be_app);
     menu->AddItem(settings);
     menu->AddSeparatorItem();
-    BMenuItem* quit = new BMenuItem("Quit", new BMessage(B_QUIT_REQUESTED), 'Q');
+    BMenuItem* quit = new BMenuItem(B_TRANSLATE("Quit"), new BMessage(B_QUIT_REQUESTED), 'Q');
     quit->SetTarget(be_app);
     menu->AddItem(quit);
     fMenuBar->AddItem(menu);
 
     // the same data as a form that a person fills in, or as the inspector that shows every value with its type
-    BMenu* viewMenu = new BMenu("View");
-    fFormItem = new BMenuItem("Form", new BMessage(kMsgViewForm), 'F');
-    fInspectorItem = new BMenuItem("Inspector", new BMessage(kMsgViewInspector), 'I');
+    BMenu* viewMenu = new BMenu(B_TRANSLATE("View"));
+    fFormItem = new BMenuItem(B_TRANSLATE("Form"), new BMessage(kMsgViewForm), 'F');
+    fInspectorItem = new BMenuItem(B_TRANSLATE("Inspector"), new BMessage(kMsgViewInspector), 'I');
     fFormItem->SetMarked(true);
     viewMenu->AddItem(fFormItem);
     viewMenu->AddItem(fInspectorItem);
@@ -92,8 +97,8 @@ ShojiMessageWindow::ShojiMessageWindow(const entry_ref& ref, const BMessage& dat
     fInspector->SetEditable(fWritable);
     fInspector->SetData(data);
 
-    fRevertButton = new BButton("revert", "Revert", new BMessage(kMsgRevert));
-    fDefaultsButton = new BButton("defaults", "Defaults", new BMessage(kMsgDefaults));
+    fRevertButton = new BButton("revert", B_TRANSLATE("Revert"), new BMessage(kMsgRevert));
+    fDefaultsButton = new BButton("defaults", B_TRANSLATE("Defaults"), new BMessage(kMsgDefaults));
 
     const float spacing = be_control_look->DefaultItemSpacing();
     BLayoutBuilder::Group<>(this, B_VERTICAL, 0)
@@ -148,9 +153,10 @@ void ShojiMessageWindow::MessageReceived(BMessage* message)
         case form::kRefused:
         {
             // not blocking: the field has gone back to its value
-            BString text("The value is not valid for '");
-            text << message->GetString(form::kFieldPath, "") << "': " << message->GetString(form::kFieldDetail, "") << "\nThe previous value has been restored.";
-            BAlert* alert = new BAlert("Value refused", text.String(), "Oh no.");
+            BString text(B_TRANSLATE("The value is not valid for '%field%': %detail%\nThe previous value has been restored."));
+            text.ReplaceAll("%field%", message->GetString(form::kFieldPath, ""));
+            text.ReplaceAll("%detail%", message->GetString(form::kFieldDetail, ""));
+            BAlert* alert = new BAlert("Value refused", text.String(), B_TRANSLATE("Oh no."));
             alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
             alert->Go(NULL);
             break;
@@ -216,7 +222,7 @@ status_t ShojiMessageWindow::_Save()
         return result;
     const ssize_t written = file.Write(buffer.Buffer(), buffer.BufferLength());
     if (written != (ssize_t)buffer.BufferLength()) {
-        BAlert* alert = new BAlert("Error storing", "The file could not be written.", "Oh no.");
+        BAlert* alert = new BAlert("Error storing", B_TRANSLATE("The file could not be written."), B_TRANSLATE("Oh no."));
         alert->SetFlags(alert->Flags() | B_WARNING_ALERT | B_CLOSE_ON_ESCAPE);
         alert->Go(NULL);
         return written < 0 ? (status_t)written : B_IO_ERROR;
@@ -277,6 +283,6 @@ void ShojiMessageWindow::_UpdateTitle()
     BString title(fRef.name);
     title << " - Shoji";
     if (!fWritable)
-        title << " (read-only)";
+        title << " " << B_TRANSLATE("(read-only)");
     SetTitle(title.String());
 }

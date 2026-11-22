@@ -6,28 +6,39 @@
 #include "ShojiMessageView.h"
 
 #include <Alignment.h>
+#include <Bitmap.h>
 #include <Button.h>
+#include <ControlLook.h>
 #include <CheckBox.h>
 #include <GridLayout.h>
 #include <DecimalSpinner.h>
+#include <File.h>
+#include <FindDirectory.h>
 #include <GridView.h>
+#include <IconUtils.h>
 #include <LayoutItem.h>
 #include <ListItem.h>
 #include <Menu.h>
 #include <MenuField.h>
 #include <MenuItem.h>
 #include <OutlineListView.h>
+#include <Path.h>
 #include <PopUpMenu.h>
 #include <RadioButton.h>
+#include <Resources.h>
 #include <ScrollView.h>
 #include <Slider.h>
 #include <SpaceLayoutItem.h>
 #include <Spinner.h>
+#include <Url.h>
 #include <SplitView.h>
 #include <StringView.h>
 #include <TextControl.h>
 #include <TextView.h>
+#include <ToolTip.h>
 #include <Window.h>
+
+#include <sen/SenFilterMenu.h>
 
 #include <algorithm>
 #include <math.h>
@@ -41,12 +52,41 @@
 
 #include "../app/ShojiDateControl.h"
 #include "../app/ShojiListControl.h"
+#include "../app/ShojiStateIcon.h"
 #include "../app/ShojiTableControl.h"
+#include <Catalog.h>
+
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiMessageView"
+
 
 using namespace sen::settings;
 namespace form = sen::settings::form;
 
 namespace {
+
+/** A view that draws a bitmap (the icon of a status line). */
+class IconView : public BView {
+public:
+    IconView(BBitmap* icon)
+        :
+        BView("sen:status icon", B_WILL_DRAW),
+        fIcon(icon)
+    {
+        SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
+        SetDrawingMode(B_OP_ALPHA);
+        SetBlendingMode(B_PIXEL_ALPHA, B_ALPHA_OVERLAY);
+        const BSize size = fIcon->Bounds().Size();
+        SetExplicitMinSize(BSize(size.width + 1, size.height + 1));
+        SetExplicitMaxSize(BSize(size.width + 1, size.height + 1));
+        SetExplicitPreferredSize(BSize(size.width + 1, size.height + 1));
+    }
+    ~IconView() { delete fIcon; }
+    virtual void Draw(BRect) { DrawBitmap(fIcon, BPoint(0, 0)); }
+
+private:
+    BBitmap*    fIcon;
+};
 
 // what the controls tell the view (it is their target)
 enum {
@@ -58,6 +98,8 @@ enum {
     kMsgDate    = 'MVda',       // a date: path
     kMsgSelect  = 'MVse',       // a node of the tree was selected
     kMsgTable   = 'MVtb',       // a cell of a table was changed: path, value
+    kMsgPopup   = 'MVpu',       // a value was picked from the list that follows a text field: path, value
+    kMsgRow     = 'MVrw',       // another row of a table was selected: table
     kMsgAction  = 'MVac'        // a button (kind `button`) was pressed: path
 };
 
@@ -282,6 +324,30 @@ void Connect(BView* parent, BHandler* target)
 }   // namespace
 
 
+// The one handler of a form that the masters (`update_msg`) tell their updates: a master sends them as notices (BHandler::SendNotices) to its observers, the form is the observer of each,
+// and passes the notice on to the details that listen to its command.
+class ShojiChangeHandler : public BHandler {
+public:
+    ShojiChangeHandler(ShojiMessageView* form)
+        :
+        BHandler("sen:changes"),
+        fForm(form)
+    {
+    }
+
+    virtual void MessageReceived(BMessage* message)
+    {
+        if (message->what == B_OBSERVER_NOTICE_CHANGE)
+            fForm->_ApplyNotice(*message);
+        else
+            BHandler::MessageReceived(message);
+    }
+
+private:
+    ShojiMessageView*   fForm;
+};
+
+
 ShojiMessageView::ShojiMessageView(const char* name)
     :
     BGroupView(name, B_VERTICAL, 0),
@@ -293,6 +359,7 @@ ShojiMessageView::ShojiMessageView(const char* name)
     fPaneHolder(NULL),
     fPane(NULL)
 {
+    fChange = new ShojiChangeHandler(this);
     SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
 
     fTree = new BOutlineListView("sen:tree", B_SINGLE_SELECTION_LIST);
@@ -346,14 +413,28 @@ ShojiMessageView::~ShojiMessageView()
     fTree->MakeEmpty();
     for (BListItem* item : items)
         delete item;
+    _DeletePopups();
+    delete fChange;
 }
 
 
 void ShojiMessageView::AttachedToWindow()
 {
     BGroupView::AttachedToWindow();
+    if (fChange->Looper() == NULL)
+        Window()->AddHandler(fChange);
     fTree->SetTarget(this);
     Connect(fPane, this);
+    if (fFilterMenus.empty())
+        _AttachPopups();
+}
+
+
+void ShojiMessageView::DetachedFromWindow()
+{
+    if (fChange->Looper() != NULL)
+        fChange->Looper()->RemoveHandler(fChange);
+    BGroupView::DetachedFromWindow();
 }
 
 
@@ -450,7 +531,7 @@ void ShojiMessageView::CommitPending()
             continue;
         std::string current;
         if (GetText(fWorking, path, &current) == B_OK && current != control->Text())
-            _ApplyText(path, control->Text());
+            _ControlChanged(path, control->Text());
     }
 
     // a cell of a table that is being edited
@@ -460,7 +541,7 @@ void ShojiMessageView::CommitPending()
         std::string path, text;
         if (control != NULL && control->PendingEdit(&path, &text)) {
             control->EndEdit(false);
-            _ApplyText(path, text);
+            _ControlChanged(path, text);
         }
     }
 }
@@ -506,18 +587,47 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             BTextControl* control;
             if (message->FindString("path", &path) == B_OK
                     && (control = dynamic_cast<BTextControl*>(ControlFor(path))) != NULL)
-                _ApplyText(path, control->Text());
+                _ControlChanged(path, control->Text());
             break;
         }
         case kMsgAction:
         {
             // a button is no value: the target is told that it was pressed, and nothing changes in the working copy
             const char* path;
+            // (a button that listens to an update is the revert button of its field: it answers its master, the owner is not asked)
+            if (message->FindString("path", &path) == B_OK && _IsBound(path)) {
+                if (!_OpenUrlOf(path))
+                    _AnswerDefault(path);
+                break;
+            }
             if (message->FindString("path", &path) == B_OK && fTarget.IsValid()) {
                 BMessage action(form::kAction);
                 action.AddString(form::kFieldPath, path);
                 action.AddInt32(form::kFieldProtocol, form::kProtocol);
                 fTarget.SendMessage(&action);
+                // the line that the button shows its result in says that the answer is awaited, instead of the one of the last time (no icon): the only place that tells the state of the work
+                const char* shows;
+                BStringView* line;
+                if (message->FindString("shows", &shows) == B_OK && (line = dynamic_cast<BStringView*>(ControlFor(shows))) != NULL) {
+                    Waiting waiting;
+                    waiting.button = path;
+                    waiting.line = shows;
+                    waiting.text = line->Text();
+                    if (BTextToolTip* tip = dynamic_cast<BTextToolTip*>(line->ToolTip()))
+                        waiting.tip = tip->Text();
+                    fWaitingButtons.push_back(waiting);
+                    line->SetText("Waiting for reply...");
+                    line->SetToolTip((const char*)NULL);
+                    // (the button waits, too: the form is made again from the answer, which enables it)
+                    if (BControl* button = dynamic_cast<BControl*>(ControlFor(path)))
+                        button->SetEnabled(false);
+                    if (BGroupView* group = dynamic_cast<BGroupView*>(line->Parent())) {
+                        for (int32 i = 0; i < group->CountChildren(); i++) {
+                            if (dynamic_cast<IconView*>(group->ChildAt(i)) != NULL)
+                                group->ChildAt(i)->Hide();
+                        }
+                    }
+                }
             }
             break;
         }
@@ -527,7 +637,7 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             BCheckBox* control;
             if (message->FindString("path", &path) == B_OK
                     && (control = dynamic_cast<BCheckBox*>(ControlFor(path))) != NULL)
-                _ApplyText(path, control->Value() == B_CONTROL_ON ? "true" : "false");
+                _ControlChanged(path, control->Value() == B_CONTROL_ON ? "true" : "false");
             break;
         }
         case kMsgChoice:
@@ -535,7 +645,7 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             const char* path;
             const char* value;
             if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK)
-                _ApplyText(path, value);
+                _ControlChanged(path, value);
             break;
         }
         case kMsgList:
@@ -562,6 +672,33 @@ void ShojiMessageView::MessageReceived(BMessage* message)
                 message->SendReply(&reply);
             break;
         }
+        case form::kActionDone:
+        {
+            // the answer to a button changed no data: its button works again and its line says what it said before (the controls are those of the form that was there when it was pressed)
+            const char* only = NULL;
+            message->FindString(form::kFieldPath, &only);
+            std::vector<Waiting> remaining;
+            for (const Waiting& waiting : fWaitingButtons) {
+                if (only != NULL && waiting.button != only) {
+                    remaining.push_back(waiting);
+                    continue;
+                }
+                if (BControl* button = dynamic_cast<BControl*>(ControlFor(waiting.button.c_str())))
+                    button->SetEnabled(fEditable);
+                if (BStringView* line = dynamic_cast<BStringView*>(ControlFor(waiting.line.c_str()))) {
+                    line->SetText(waiting.text.c_str());
+                    line->SetToolTip(waiting.tip.empty() ? (const char*)NULL : waiting.tip.c_str());
+                    if (BGroupView* group = dynamic_cast<BGroupView*>(line->Parent())) {
+                        for (int32 i = 0; i < group->CountChildren(); i++) {
+                            if (dynamic_cast<IconView*>(group->ChildAt(i)) != NULL && group->ChildAt(i)->IsHidden())
+                                group->ChildAt(i)->Show();
+                        }
+                    }
+                }
+            }
+            fWaitingButtons = remaining;
+            break;
+        }
         case form::kRevert:
             Revert();
             _Reply(message, B_OK);
@@ -576,11 +713,11 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             if (message->FindString("path", &path) != B_OK || (control = ControlFor(path)) == NULL)
                 break;
             if (BSpinner* spinner = dynamic_cast<BSpinner*>(control))
-                _ApplyText(path, std::to_string(spinner->Value()));
+                _ControlChanged(path, std::to_string(spinner->Value()));
             else if (BDecimalSpinner* decimal = dynamic_cast<BDecimalSpinner*>(control))
-                _ApplyText(path, detail::NumberText(decimal->Value()));
+                _ControlChanged(path, detail::NumberText(decimal->Value()));
             else if (ValueSlider* slider = dynamic_cast<ValueSlider*>(control))
-                _ApplyText(path, slider->ValueText());
+                _ControlChanged(path, slider->ValueText());
             break;
         }
         case kMsgDate:
@@ -588,7 +725,25 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             const char* path;
             ShojiDateControl* control;
             if (message->FindString("path", &path) == B_OK && (control = dynamic_cast<ShojiDateControl*>(ControlFor(path))) != NULL)
-                _ApplyText(path, control->DateText().String());
+                _ControlChanged(path, control->DateText().String());
+            break;
+        }
+        case kMsgRow:
+            _PublishUpdate(message->GetString("table", ""));
+            break;
+        case form::kUpdated:
+            _TakeAnswer(*message);
+            break;
+        case kMsgPopup:
+        {
+            // (a value of the list: it is in the field already, as typing it would have put it there)
+            const char* path;
+            const char* value;
+            if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK) {
+                if (BTextControl* control = dynamic_cast<BTextControl*>(ControlFor(path)))
+                    control->SetText(value);
+                _ControlChanged(path, value);
+            }
             break;
         }
         case kMsgTable:
@@ -599,7 +754,7 @@ void ShojiMessageView::MessageReceived(BMessage* message)
             if (message->FindInt32("reorder_from", &from) == B_OK && message->FindInt32("reorder_to", &to) == B_OK) {
                 _ReorderRows(message->GetString("table", ""), from, to);
             } else if (message->FindString("path", &path) == B_OK && message->FindString("value", &value) == B_OK) {
-                _ApplyText(path, value);
+                _ControlChanged(path, value);
             }
             break;
         }
@@ -766,21 +921,30 @@ void ShojiMessageView::_ShowNode(const std::string& path)
     fTextPaths.clear();
     // (the widths that the user gave the columns of the tables stay, also when the form is made again)
     for (const Table& shownTable : fTables) {
-        if (ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(shownTable.path.c_str())))
+        if (ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(shownTable.path.c_str()))) {
             fTableWidths[shownTable.path] = control->UserWidths();
+            fTableSelection[shownTable.path] = control->SelectedRow();
+        }
     }
     fTables.clear();
+    fBindings.clear();
+    fWaitingButtons.clear();
     _FillPane(pane, path);
+    _RegisterBindings();
 
     BView* old = fPane;
+    _DeletePopups();
     fPaneHolder->GroupLayout()->RemoveView(old);
     old->RemoveSelf();
     delete old;
     fPane = pane;
     fPaneHolder->GroupLayout()->AddView(pane);
-    if (Window() != NULL)
+    if (Window() != NULL) {
         Connect(pane, this);
+        _AttachPopups();
+    }
     _UpdateEnabled();
+    _PublishAll();
 
     for (int32 i = 0; i < fTree->FullListCountItems(); i++) {
         NodeItem* item = dynamic_cast<NodeItem*>(fTree->FullListItemAt(i));
@@ -814,13 +978,25 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
         const std::vector<Known>& known = fKnown[node];
         // the text fields that a button shows beside itself (`shows`): they have no line of their own
         std::set<std::string> besideButton;
+        fBeside.clear();
+        fBesideFields.clear();        fPopups.clear();
+
         for (size_t i = 0; i < known.size(); i++) {
             const BMessage attributes = _SchemaOf(ChildPath(key, known[i].name));
             const char* kindOfField = NULL;
             const char* shows = NULL;
+            const char* beside = NULL;
             if (attributes.FindString(form::kAttrKind, &kindOfField) == B_OK && strcmp(kindOfField, form::kKindButton) == 0
                     && attributes.FindString(form::kAttrShows, &shows) == B_OK)
                 besideButton.insert(shows);
+            // (a button or a text field that stands in the line of another field has no line of its own)
+            if (attributes.FindString(form::kAttrBeside, &beside) == B_OK) {
+                if (kindOfField != NULL && strcmp(kindOfField, form::kKindButton) == 0)
+                    fBeside[beside].push_back(known[i].name);
+                else
+                    fBesideFields[beside] = known[i].name;
+                besideButton.insert(known[i].name);
+            }
         }
         for (size_t i = 0; i < known.size(); i++) {
             const BMessage attributes = _SchemaOf(ChildPath(key, known[i].name));
@@ -880,7 +1056,7 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
     }
 
     if (row == 0) {
-        BStringView* note = new BStringView("sen:note", "There is nothing to set here.");
+        BStringView* note = new BStringView("sen:note", B_TRANSLATE("There is nothing to set here."));
         note->SetHighUIColor(B_PANEL_TEXT_COLOR, B_DARKEN_1_TINT);
         layout->AddView(note, 0, row++, 2, 1);
     }
@@ -901,6 +1077,53 @@ void ShojiMessageView::_FillPane(BGridView* pane, const std::string& node)
     // keep the rows together at the top
     layout->AddItem(BSpaceLayoutItem::CreateGlue(), 0, row, 2, 1);
     layout->SetRowWeight(row, 100.0f);
+}
+
+
+/**
+ * The line of a text that only shows: the text, and if the schema of the field names a state field (`state_field`) the icon of that state before it, and a detail field (`detail_field`) the
+ * tool tip. Plain text view if the schema asks for nothing of it. @p name is the name of the text view (its path).
+ */
+static BView* MakeStatusLine(const std::string& name, const std::string& text, const BMessage& attributes, const BMessage& message, const char* help)
+{
+    auto fieldText = [&](const char* attribute) {
+        const char* field = NULL;
+        std::string value;
+        if (attributes.FindString(attribute, &field) == B_OK && field != NULL && GetText(message, EscapeSegment(field), &value) == B_OK)
+            return value;
+        return std::string();
+    };
+    const std::string state = fieldText(form::kAttrStateField);
+    std::string detail = fieldText(form::kAttrDetailField);
+
+    BStringView* shown = new BStringView(name.c_str(), text.c_str());
+    shown->SetTruncation(B_TRUNCATE_END);
+    shown->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 8, B_SIZE_UNSET));
+    shown->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+    shown->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+    if (detail.empty() && help != NULL)
+        detail = help;
+    if (detail.empty())
+        detail = text;
+    if (!detail.empty())
+        shown->SetToolTip(detail.c_str());
+
+    font_height height;
+    be_plain_font->GetHeight(&height);
+    BBitmap* icon = state.empty() ? NULL : ShojiStateIcon(state, ceilf(height.ascent + height.descent + height.leading) + 4);
+    if (icon == NULL)
+        return shown;
+
+    BGroupView* line = new BGroupView(B_HORIZONTAL, be_control_look->DefaultItemSpacing() / 2);
+    line->GroupLayout()->SetInsets(0, 0, 0, 0);
+    IconView* iconView = new IconView(icon);
+    if (!detail.empty())
+        iconView->SetToolTip(detail.c_str());
+    line->GroupLayout()->AddView(iconView);
+    line->GroupLayout()->AddView(shown);
+    line->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+    line->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+    return line;
 }
 
 
@@ -991,6 +1214,9 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     if (kind == form::kKindButton) {
         BMessage* pressed = new BMessage(kMsgAction);
         pressed->AddString("path", path.c_str());
+        const char* resultField = NULL;
+        if (attributes.FindString(form::kAttrShows, &resultField) == B_OK)
+            pressed->AddString("shows", ChildPath(node, resultField).c_str());
         BButton* button = new BButton(path.c_str(), label.c_str(), pressed);
         button->SetEnabled(fEditable);
         if (help != NULL)
@@ -1007,13 +1233,7 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
             right->GroupLayout()->AddView(button);
             right->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
             layout->AddView(right, 0, *row);
-            BStringView* result = new BStringView(ChildPath(node, shows).c_str(), shownText.c_str());
-            result->SetTruncation(B_TRUNCATE_END);
-            result->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 8, B_SIZE_UNSET));
-            result->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
-            result->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
-            if (!shownText.empty())
-                result->SetToolTip(shownText.c_str());
+            BView* result = MakeStatusLine(ChildPath(node, shows), shownText, _SchemaOf(ChildPath(key, shows)), message, NULL);
             layout->AddView(result, 1, *row);
         } else {
             button->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
@@ -1027,15 +1247,7 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     if (attributes.GetBool(form::kAttrReadOnly, false) && field.type != B_BOOL_TYPE) {
         BStringView* name = new BStringView("sen:label", label.c_str());
         name->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
-        BStringView* shown = new BStringView(path.c_str(), text.c_str());
-        shown->SetTruncation(B_TRUNCATE_END);
-        shown->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 10, B_SIZE_UNSET));
-        shown->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
-        shown->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
-        if (help != NULL)
-            shown->SetToolTip(help);
-        else if (!text.empty())
-            shown->SetToolTip(text.c_str());
+        BView* shown = MakeStatusLine(path, text, attributes, message, help);
         layout->AddView(name, 0, *row);
         layout->AddView(shown, 1, *row);
         (*row)++;
@@ -1050,6 +1262,39 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         checkBox->SetEnabled(fEditable);
         if (help != NULL)
             checkBox->SetToolTip(help);
+        // a text field in the same line (`beside`): the check box in the column of the labels, the field in the column of the controls
+        std::map<std::string, std::string>::const_iterator partner = fBesideFields.find(field.name);
+        if (partner != fBesideFields.end()) {
+            const BMessage partnerAttributes = _SchemaOf(ChildPath(key, partner->second));
+            const std::string partnerSegment = SegmentFor(partner->second, 0, 1, info);
+            std::string partnerText;
+            if (!partnerSegment.empty() && GetText(message, EscapeSegment(partnerSegment), &partnerText) == B_OK) {
+                const char* partnerHelp = NULL;
+                partnerAttributes.FindString(form::kAttrHelp, &partnerHelp);
+                const char* partnerKind = NULL;
+                partnerAttributes.FindString(form::kAttrKind, &partnerKind);
+                const std::string partnerPath = ChildPath(node, partnerSegment);
+                BTextControl* partnerControl = _PlainTextControl(partnerPath, partnerText, partnerKind != NULL && strcmp(partnerKind, form::kKindSecret) == 0, partnerHelp);
+                checkBox->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+                layout->AddView(checkBox, 0, *row);
+                // buttons at the end of the line of that field (a `Get key...` beside the API key): field and buttons in a group, as in the line of any other field
+                const std::vector<BButton*> partnerButtons = _BesideButtons(node, key, partner->second);
+                if (partnerButtons.empty())
+                    layout->AddView(partnerControl, 1, *row);
+                else {
+                    BGroupView* cell = new BGroupView(B_HORIZONTAL, B_USE_DEFAULT_SPACING);
+                    cell->GroupLayout()->SetInsets(0, 0, 0, 0);
+                    cell->GroupLayout()->AddView(partnerControl);
+                    for (BButton* button : partnerButtons)
+                        cell->GroupLayout()->AddView(button);
+                    cell->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+                    layout->AddView(cell, 1, *row);
+                }
+                fTextPaths.push_back(partnerPath);
+                (*row)++;
+                return;
+            }
+        }
         layout->AddView(checkBox, 0, *row, 2, 1);
         (*row)++;
         return;
@@ -1184,8 +1429,8 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
         return;
     }
 
-    // a choice of the schema: a menu
-    if (hasChoices) {
+    // a choice of the schema: a menu (a `popup` is a text field with a list that follows the text)
+    if (hasChoices && kind != form::kKindPopup) {
         BPopUpMenu* menu = new BPopUpMenu(path.c_str());
         menu->SetRadioMode(true);
         menu->SetLabelFromMarked(true);
@@ -1234,6 +1479,25 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     kept->AddString("path", path.c_str());
     // a password field is made as the E-mail preferences make theirs: HideTyping() first, because it empties the field, then the text, which shows as bullets
     const bool secret = kind == form::kKindSecret;
+    // buttons that stand at the end of the line of the field (a revert button): the field has no label of its own then, and field and buttons are in a group in the column of the controls
+    const std::vector<BButton*> besideField = _BesideButtons(node, key, field.name);
+    if (!besideField.empty()) {
+        delete kept;
+        BTextControl* plain = _PlainTextControl(path, text, secret, help);
+        BGroupView* cell = new BGroupView(B_HORIZONTAL, B_USE_DEFAULT_SPACING);
+        cell->GroupLayout()->SetInsets(0, 0, 0, 0);
+        cell->GroupLayout()->AddView(plain);
+        for (BButton* button : besideField)
+            cell->GroupLayout()->AddView(button);
+        cell->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+        BStringView* fieldLabel = new BStringView("sen:label", label.c_str());
+        fieldLabel->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+        layout->AddView(fieldLabel, 0, *row);
+        layout->AddView(cell, 1, *row);
+        fTextPaths.push_back(path);
+        (*row)++;
+        return;
+    }
     BTextControl* textControl = new BTextControl(path.c_str(), label.c_str(), secret ? "" : text.c_str(), kept);
     // a field is wide enough to edit in
     textControl->TextView()->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
@@ -1245,6 +1509,16 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     textControl->SetEnabled(fEditable);
     if (help != NULL)
         textControl->SetToolTip(help);
+    if (kind == form::kKindPopup && hasChoices) {
+        Popup popup;
+        popup.path = path;
+        for (int32 i = 0; i < choiceCount; i++)
+            popup.values.push_back(attributes.GetString(form::kAttrChoices, i, ""));
+        popup.allowCustom = attributes.GetBool(form::kAttrAllowCustom, true);
+        popup.allowMultiple = attributes.GetBool(form::kAttrAllowMultiple, false);
+        popup.control = textControl;
+        fPopups.push_back(popup);
+    }
     BLayoutItem* textLabel = textControl->CreateLabelLayoutItem();
     BLayoutItem* textItem = textControl->CreateTextViewLayoutItem();
     textItem->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_UNSET));
@@ -1252,6 +1526,78 @@ void ShojiMessageView::_AddField(BGridView* pane, int32* row, const std::string&
     layout->AddItem(textItem, 1, *row);
     (*row)++;
     fTextPaths.push_back(path);
+}
+
+
+// A text field with no label of its own (the label stands in the column of the labels, or is the check box before it).
+BTextControl* ShojiMessageView::_PlainTextControl(const std::string& path, const std::string& text, bool secret, const char* help)
+{
+    BMessage* kept = new BMessage(kMsgText);
+    kept->AddString("path", path.c_str());
+    BTextControl* control = new BTextControl(path.c_str(), "", secret ? "" : text.c_str(), kept);
+    control->TextView()->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
+    control->TextView()->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
+    if (secret) {
+        control->TextView()->HideTyping(true);
+        control->SetText(text.c_str());
+    }
+    control->SetEnabled(fEditable);
+    if (help != NULL)
+        control->SetToolTip(help);
+    return control;
+}
+
+
+// The lists that follow the text of the `popup` fields: made when the pane is in the window (the list attaches to the text view, which needs it).
+void ShojiMessageView::_AttachPopups()
+{
+    if (Window() == NULL)
+        return;
+    for (const Popup& popup : fPopups) {
+        if (popup.control == NULL || popup.control->Window() == NULL)
+            continue;
+        BMessage* chosen = new BMessage(kMsgPopup);
+        chosen->AddString("path", popup.path.c_str());
+        sen::FilterPopUpMenu* menu = new sen::FilterPopUpMenu(popup.path.c_str(), chosen);
+        menu->SetValues(popup.values);
+        menu->SetAllowCustom(popup.allowCustom);
+        menu->SetAllowMultiple(popup.allowMultiple);
+        menu->SetTargetForChoice(this);
+        menu->AttachTo(popup.control->TextView());
+        fFilterMenus.push_back(menu);
+    }
+}
+
+
+// (the lists end while the text fields that they follow are still there)
+void ShojiMessageView::_DeletePopups()
+{
+    for (sen::FilterPopUpMenu* menu : fFilterMenus)
+        delete menu;
+    fFilterMenus.clear();
+}
+
+
+// The buttons of the schema that stand beside a field: pressing one asks the owner (or, if it listens to an update, answers its master).
+std::vector<BButton*> ShojiMessageView::_BesideButtons(const std::string& node, const std::string& key, const std::string& partner)
+{
+    std::vector<BButton*> buttons;
+    std::map<std::string, std::vector<std::string> >::const_iterator found = fBeside.find(partner);
+    if (found == fBeside.end())
+        return buttons;
+    for (const std::string& name : found->second) {
+        const BMessage attributes = _SchemaOf(ChildPath(key, name));
+        const std::string path = ChildPath(node, name);
+        BMessage* pressed = new BMessage(kMsgAction);
+        pressed->AddString("path", path.c_str());
+        BButton* button = new BButton(path.c_str(), _LabelOf(attributes, name).c_str(), pressed);
+        button->SetEnabled(fEditable);
+        const char* help = NULL;
+        if (attributes.FindString(form::kAttrHelp, &help) == B_OK)
+            button->SetToolTip(help);
+        buttons.push_back(button);
+    }
+    return buttons;
 }
 
 
@@ -1269,9 +1615,11 @@ void ShojiMessageView::_AddTable(BGridView* pane, int32* row, const std::string&
     entry.node = node;
     entry.name = name;
     entry.kind = kind;
+    entry.command = form::UpdateCommand(attributes.GetString(form::kAttrUpdateMsg, ""));
 
     ShojiTableControl* table = new ShojiTableControl(entry.path.c_str());
     table->SetMessage(new BMessage(kMsgTable));
+    table->SetSelectionMessage(new BMessage(kMsgRow));
     table->SetEditable(fEditable);
     table->SetReorderable(kind == "table" && attributes.GetBool(form::kAttrReorderable, false));
     std::map<std::string, std::vector<float> >::const_iterator widths = fTableWidths.find(entry.path);
@@ -1280,11 +1628,32 @@ void ShojiMessageView::_AddTable(BGridView* pane, int32* row, const std::string&
     if (help != NULL)
         table->SetToolTip(help);
     fTables.push_back(entry);
+    // (a table that has a command tells its updates to the change handler of the form)
+    if (entry.command != 0)
+        table->StartWatching(fChange, entry.command);
     _FillTable(table, entry);
+    // (the row that was selected before the form was made again)
+    std::map<std::string, int32>::const_iterator kept = fTableSelection.find(entry.path);
+    if (kept != fTableSelection.end() && kept->second >= 0 && kept->second < table->CountRows())
+        table->SelectRow(kept->second);
 
     BStringView* title = new BStringView("sen:label", label.c_str());
     title->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_TOP));
-    layout->AddView(title, 0, *row, 2, 1);
+    const std::vector<BButton*> beside = _BesideButtons(node, key, name);
+    if (beside.empty()) {
+        layout->AddView(title, 0, *row, 2, 1);
+    } else {
+        // the title in the column of the labels, the buttons below the controls above (the column of the controls, at its left edge)
+        title->SetExplicitAlignment(BAlignment(B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
+        layout->AddView(title, 0, *row);
+        BGroupView* line = new BGroupView(B_HORIZONTAL, B_USE_DEFAULT_SPACING);
+        line->GroupLayout()->SetInsets(0, 0, 0, 0);
+        for (BButton* button : beside)
+            line->GroupLayout()->AddView(button);
+        line->GroupLayout()->AddItem(BSpaceLayoutItem::CreateGlue());
+        line->SetExplicitAlignment(BAlignment(B_ALIGN_USE_FULL_WIDTH, B_ALIGN_VERTICAL_CENTER));
+        layout->AddView(line, 1, *row);
+    }
     (*row)++;
     layout->AddView(table, 0, *row, 2, 1);
     (*row)++;
@@ -1340,6 +1709,13 @@ void ShojiMessageView::_FillTable(ShojiTableControl* control, const Table& table
         const char* rule = NULL;
         if (attributes.FindString(form::kAttrEnabledWhen, &rule) == B_OK && rule != NULL)
             cell.enabled = ConditionHolds(rule, owner);
+        // (the state of the row that the cell tells: the icon before the text, and the longer text as its tool tip)
+        const char* stateField = NULL;
+        if (attributes.FindString(form::kAttrStateField, &stateField) == B_OK && stateField != NULL)
+            GetText(owner, EscapeSegment(stateField), &cell.state);
+        const char* detailField = NULL;
+        if (attributes.FindString(form::kAttrDetailField, &detailField) == B_OK && detailField != NULL)
+            GetText(owner, EscapeSegment(detailField), &cell.detail);
 
         type_code choicesType = 0;
         int32 choiceCount = 0;
@@ -1449,13 +1825,243 @@ void ShojiMessageView::_RefreshTables(const std::string& path)
         if (control != NULL)
             _FillTable(control, table);
     }
+    _PublishAll();
+}
+
+
+void ShojiMessageView::_RegisterBindings()
+{
+    fBindings.clear();
+    const std::string key = fNode.empty() ? std::string() : _SchemaKey(fNode);
+    const std::vector<Known>& known = fKnown[fNode];
+    for (size_t i = 0; i < known.size(); i++) {
+        const BMessage attributes = _SchemaOf(ChildPath(key, known[i].name));
+        Binding binding;
+        binding.command = form::UpdateCommand(attributes.GetString(form::kAttrBindToUpdateMsg, ""));
+        if (binding.command == 0)
+            continue;
+        binding.path = ChildPath(fNode, known[i].name);
+        binding.fieldId = attributes.GetString(form::kAttrFieldId, known[i].name.c_str());
+        fBindings.push_back(binding);
+    }
+}
+
+
+bool ShojiMessageView::_IsBound(const std::string& path) const
+{
+    for (const Binding& binding : fBindings) {
+        if (binding.path == path)
+            return true;
+    }
+    return false;
+}
+
+
+// A table tells its observers what it holds for the controls that listen to its command: the fields of the selected row that are messages (a part for each control: its field id is their name).
+// The table does not know who listens, and what the controls are; the notice says where the answers go.
+void ShojiMessageView::_PublishUpdate(const std::string& tablePath)
+{
+    for (const Table& table : fTables) {
+        if (table.path != tablePath || table.command == 0)
+            continue;
+        BMessage update(table.command);
+        update.AddMessenger(form::kUpdateReplyTo, BMessenger(this));
+        ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(table.path.c_str()));
+        BMessage message;
+        type_code type = 0;
+        int32 count = 0;
+        const int32 row = control != NULL ? control->SelectedRow() : -1;
+        if (row >= 0 && NodeIn(fWorking, table.node, &message) && message.GetInfo(table.name.c_str(), &type, &count) == B_OK && row < count) {
+            BMessage each;
+            if (message.FindMessage(table.name.c_str(), row, &each) == B_OK) {
+                char* name = NULL;
+                type_code have = 0;
+                for (int32 i = 0; each.GetInfo(B_MESSAGE_TYPE, i, &name, &have) == B_OK; i++) {
+                    BMessage part;
+                    if (each.FindMessage(name, &part) == B_OK)
+                        update.AddMessage(name, &part);
+                }
+            }
+        }
+        if (control != NULL && fChange != NULL && fChange->Looper() != NULL)
+            control->SendNotices(table.command, &update);
+        else
+            _ApplyUpdates(table.command, update);       // (a form that is in no window yet: nobody is told, so it is done here)
+        return;
+    }
+}
+
+
+void ShojiMessageView::_PublishAll()
+{
+    const std::vector<Table> tables = fTables;
+    for (const Table& table : tables) {
+        if (table.command != 0)
+            _PublishUpdate(table.path);
+    }
+}
+
+
+void ShojiMessageView::_ApplyNotice(const BMessage& notice)
+{
+    _ApplyUpdates((uint32)notice.GetInt32(B_OBSERVE_WHAT_CHANGE, 0), notice);
+}
+
+
+void ShojiMessageView::_ApplyUpdates(uint32 command, const BMessage& update)
+{
+    BMessenger replyTo;
+    update.FindMessenger(form::kUpdateReplyTo, &replyTo);
+    for (Binding& binding : fBindings) {
+        if (binding.command != command)
+            continue;
+        BMessage part;
+        const bool has = update.FindMessage(binding.fieldId.c_str(), &part) == B_OK;
+        binding.haveSource = has && replyTo.IsValid();
+        binding.reply = has ? replyTo : BMessenger();
+        binding.last = has ? part : BMessage();
+        _ApplyUpdate(binding.path, has ? &part : NULL);
+    }
+}
+
+
+void ShojiMessageView::_ApplyUpdate(const std::string& path, const BMessage* part)
+{
+    BView* control = ControlFor(path.c_str());
+    if (control == NULL)
+        return;
+    bool enabled = part != NULL && part->GetBool(form::kUpdateEnabled, true) && fEditable;
+    std::string text;
+    if (part != NULL)
+        GetText(*part, form::kUpdateValue, &text);
+    if (dynamic_cast<BButton*>(control) != NULL) {
+        std::string address;
+        if (part != NULL && part->HasString(form::kUpdateUrl)) {
+            // a link button: it can be pressed while there is an address to go to
+            enabled = enabled && GetText(*part, form::kUpdateUrl, &address) == B_OK && !address.empty();
+        } else {
+            // a revert button: there is something to revert while the value is not the default
+            std::string standard;
+            enabled = enabled && part != NULL && GetText(*part, form::kUpdateDefault, &standard) == B_OK && standard != text;
+        }
+    } else {
+        _SetControlText(control, text);
+    }
+    if (BControl* each = dynamic_cast<BControl*>(control))
+        each->SetEnabled(enabled);
+    else if (BMenuField* menuField = dynamic_cast<BMenuField*>(control))
+        menuField->SetEnabled(enabled);
+}
+
+
+// The user changed a bound control: it tells the master of the last update (the messenger that came with it), with the new value in its part (of the type that it got), and does nothing else.
+// The master changes itself from that, and tells its observers again.
+void ShojiMessageView::_Answer(const std::string& path, const std::string& text)
+{
+    for (const Binding& binding : fBindings) {
+        if (binding.path != path)
+            continue;
+        if (!fEditable || !binding.haveSource) {
+            _PublishAll();
+            return;
+        }
+        BMessage part(binding.last);
+        part.RemoveName(form::kUpdateEnabled);
+        part.RemoveName(form::kUpdateDefault);
+        if (SetText(&part, form::kUpdateValue, text) != B_OK) {
+            part.MakeEmpty();
+            part.AddString(form::kUpdateValue, text.c_str());
+        }
+        BMessage answer(form::kUpdated);
+        answer.AddInt32(form::kUpdateCommand, (int32)binding.command);
+        answer.AddMessage(binding.fieldId.c_str(), &part);
+        if (binding.reply.SendMessage(&answer) != B_OK)
+            _PublishAll();
+        return;
+    }
+}
+
+
+// A link button (its update has an address): the address opens in the application that the user has for it. @return false if the button is no link button (it is a revert button)
+bool ShojiMessageView::_OpenUrlOf(const std::string& path)
+{
+    for (const Binding& binding : fBindings) {
+        if (binding.path != path)
+            continue;
+        if (!binding.last.HasString(form::kUpdateUrl))
+            return false;
+        std::string address;
+        if (GetText(binding.last, form::kUpdateUrl, &address) == B_OK && !address.empty()) {
+            BUrl url(address.c_str(), true);
+            if (url.IsValid())
+                url.OpenWithPreferredApplication();
+        }
+        return true;
+    }
+    return false;
+}
+
+
+void ShojiMessageView::_AnswerDefault(const std::string& path)
+{
+    for (const Binding& binding : fBindings) {
+        if (binding.path != path)
+            continue;
+        std::string standard;
+        if (binding.haveSource && GetText(binding.last, form::kUpdateDefault, &standard) == B_OK)
+            _Answer(path, standard);
+        return;
+    }
+}
+
+
+// What a table does with an answer: the values go to the field of the row that is selected, into the message of the part, as a change of any cell (checked, put in the working copy, told to the
+// owner). The answer does not say which row: that is the table's own state (the details always show the selected row, and the messages of a looper are handled in order).
+void ShojiMessageView::_TakeAnswer(const BMessage& answer)
+{
+    const uint32 command = (uint32)answer.GetInt32(form::kUpdateCommand, 0);
+    for (const Table& table : fTables) {
+        if (table.command != command || command == 0)
+            continue;
+        ShojiTableControl* control = dynamic_cast<ShojiTableControl*>(ControlFor(table.path.c_str()));
+        const int32 row = control != NULL ? control->SelectedRow() : -1;
+        BMessage message;
+        type_code type = 0;
+        int32 count = 0;
+        if (row < 0 || !NodeIn(fWorking, table.node, &message) || message.GetInfo(table.name.c_str(), &type, &count) != B_OK || row >= count)
+            return;
+        const std::string segment = SegmentFor(table.name, (size_t)row, (size_t)count, detail::InfoOf(message));
+        if (segment.empty())
+            return;
+        const std::string rowPath = ChildPath(table.node, segment);
+        char* name = NULL;
+        type_code have = 0;
+        for (int32 i = 0; answer.GetInfo(B_MESSAGE_TYPE, i, &name, &have) == B_OK; i++) {
+            BMessage part;
+            if (answer.FindMessage(name, &part) != B_OK)
+                continue;
+            char* key = NULL;
+            type_code kind = 0;
+            for (int32 k = 0; part.GetInfo(B_ANY_TYPE, k, &key, &kind) == B_OK; k++) {
+                std::string text;
+                if (GetText(part, EscapeSegment(key), &text) == B_OK)
+                    _ControlChanged(ChildPath(ChildPath(rowPath, name), key), text);
+            }
+        }
+        return;
+    }
 }
 
 
 // A value that was typed or chosen: checked against its type and the range of the schema, put into the working copy, and told to the target. What is shown is
 // the value as it is stored (007 is 7). A value that does not fit is refused and the control shows the old one.
-void ShojiMessageView::_ApplyText(const std::string& path, const std::string& text)
+void ShojiMessageView::_ControlChanged(const std::string& path, const std::string& text)
 {
+    // a control that listens to a master: what it holds is the master's, so it answers the master instead of changing the form
+    if (_IsBound(path)) {
+        _Answer(path, text);
+        return;
+    }
     if (!fEditable) {
         _Show(path);
         return;
@@ -1560,7 +2166,13 @@ void ShojiMessageView::_Show(const std::string& path)
     std::string text;
     if (control == NULL || GetText(fWorking, path, &text) != B_OK)
         return;
+    _SetControlText(control, text);
+}
 
+
+// A control shows a value as text (whatever its kind is: a field, a check box, a spinner, a date, a group of radio buttons).
+void ShojiMessageView::_SetControlText(BView* control, const std::string& text)
+{
     if (BTextControl* textControl = dynamic_cast<BTextControl*>(control)) {
         if (text != textControl->Text())
             textControl->SetText(text.c_str());

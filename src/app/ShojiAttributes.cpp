@@ -3,6 +3,7 @@
  * SPDX-FileCopyrightText: 2024-2026 SEN Labs e.U.
  */
 
+#include <MimeType.h>
 #include <CheckBox.h>
 #include <Font.h>
 #include <InterfaceDefs.h>
@@ -20,8 +21,12 @@
 #include <limits>
 #include <type_traits>
 
+#include <sen/SenRecurrence.h>
+#include <sen/SenTimeAttributes.h>
+
 #include "ShojiAttributes.h"
 #include "ShojiDateControl.h"
+#include "ShojiDateTimeControl.h"
 #include "ShojiDuration.h"
 #include "ShojiDurationControl.h"
 #include "ShojiListControl.h"
@@ -49,6 +54,7 @@ bool IsSupportedType(type_code type)
 {
     switch (type) {
         case B_STRING_TYPE:
+        case B_MIME_STRING_TYPE:
         case B_BOOL_TYPE:
         case B_INT8_TYPE:
         case B_INT16_TYPE:
@@ -175,6 +181,7 @@ static status_t FormatValue(type_code type, const uint8* data, ssize_t size, BSt
 {
     switch (type) {
         case B_STRING_TYPE:
+        case B_MIME_STRING_TYPE:		// (a MIME type is a string: the semantic type META:TYPE)
             text->SetTo((const char*)data, strnlen((const char*)data, size));
             return B_OK;
         case B_BOOL_TYPE:
@@ -209,10 +216,25 @@ static status_t FormatValue(type_code type, const uint8* data, ssize_t size, BSt
             const bool isDate = seconds % kSecondsPerDay == 0;
             time_t time = (time_t)seconds;
             struct tm parts;
-            if ((isDate ? gmtime_r(&time, &parts) : localtime_r(&time, &parts)) == NULL)
-                return B_BAD_DATA;
             char buffer[64];
-            strftime(buffer, sizeof(buffer), isDate ? kDateFormat : kTimeFormat, &parts);
+            if (seconds >= 0 && (isDate ? gmtime_r(&time, &parts) : localtime_r(&time, &parts)) != NULL) {
+                strftime(buffer, sizeof(buffer), isDate ? kDateFormat : kTimeFormat, &parts);
+            } else {
+                // (before 1970 Haiku's localtime and gmtime fail: the calendar is counted here, on the clock of the zone as the zone is now)
+                const long long clock = isDate ? seconds : seconds + sen::timeattr::LocalOffsetAt(seconds);
+                long long days = clock / kSecondsPerDay, rest = clock % kSecondsPerDay;
+                if (rest < 0) {
+                    rest += kSecondsPerDay;
+                    days--;
+                }
+                long long year;
+                int month, day;
+                sen::edtf::detail::CivilFromDays(days, &year, &month, &day);
+                if (isDate)
+                    snprintf(buffer, sizeof(buffer), "%04lld-%02d-%02d", year, month, day);
+                else
+                    snprintf(buffer, sizeof(buffer), "%04lld-%02d-%02d %02d:%02d:%02d", year, month, day, (int)(rest / 3600), (int)(rest % 3600 / 60), (int)(rest % 60));
+            }
             text->SetTo(buffer);
             return B_OK;
         }
@@ -240,7 +262,25 @@ status_t LoadAttribute(BNode& node, ShojiAttribute* attr, BString* text)
     if (bytes < 0)
         return (status_t)bytes;
 
-    return FormatValue(info.type, data.data(), bytes, text);
+    status_t formatted = FormatValue(info.type, data.data(), bytes, text);
+
+    // the start and the end of something: a value that is not exact has its text beside the time (1994-05~, 2026-11-14), which is what is shown while it still gives that moment
+    if (formatted == B_OK && info.type == B_TIME_TYPE && sen::timeattr::Find(attr->name.String()) != NULL) {
+        long long seconds = 0;
+        if (bytes == (ssize_t)sizeof(int32)) {
+            int32 value;
+            memcpy(&value, data.data(), sizeof(value));
+            seconds = value;
+        } else if (bytes == (ssize_t)sizeof(int64)) {
+            int64 value;
+            memcpy(&value, data.data(), sizeof(value));
+            seconds = value;
+        }
+        std::string fuzzy;
+        if (sen::timeattr::FuzzyText(node, attr->name.String(), seconds, &fuzzy))
+            text->SetTo(fuzzy.c_str());
+    }
+    return formatted;
 }
 
 // --- writing: text to attribute data
@@ -285,6 +325,14 @@ static status_t ParseValue(type_code type, const char* text, std::vector<uint8>*
         case B_STRING_TYPE:
             Append(data, text, strlen(text) + 1);
             return B_OK;
+        case B_MIME_STRING_TYPE: {
+            // a MIME type (type/subtype): what is no valid one is not stored; the string is that of the type
+            BMimeType mime(text);
+            if (mime.InitCheck() != B_OK || mime.Type() == NULL)
+                return B_BAD_VALUE;
+            Append(data, mime.Type(), strlen(mime.Type()) + 1);
+            return B_OK;
+        }
         case B_BOOL_TYPE: {
             bool value;
             if (strcmp(text, "1") == 0 || strcasecmp(text, "true") == 0)
@@ -331,7 +379,15 @@ static status_t ParseValue(type_code type, const char* text, std::vector<uint8>*
                 const char* rest = strptime(text, format, &parts);
                 if (rest == NULL || *rest != '\0')
                     continue;
-                time_t time = format == kDateFormat ? MidnightUtc(parts) : mktime(&parts);
+                time_t time;
+                if (format == kDateFormat)
+                    time = MidnightUtc(parts);
+                else if (parts.tm_year < 70 || (parts.tm_year == 70 && parts.tm_mon == 0 && parts.tm_mday <= 2)) {
+                    // (mktime of Haiku does not know the years before 1970, and is a second off at their edge: the clock is counted as the zone has it now)
+                    const long long utc = (long long)MidnightUtc(parts) + parts.tm_hour * 3600LL + parts.tm_min * 60LL + parts.tm_sec;
+                    time = (time_t)(utc - sen::timeattr::LocalOffsetAt(utc));
+                } else
+                    time = mktime(&parts);
                 if (time == (time_t)-1)
                     return B_BAD_VALUE;
                 Append(data, &time, sizeof(time));
@@ -349,6 +405,10 @@ status_t StoreAttribute(BNode& node, const ShojiAttribute& attr, const char* tex
     if (!IsSupportedType(attr.type))
         return B_NOT_SUPPORTED;
 
+    // the start and the end of something take a day, a time, or a time that is not exact (1994-05~, 202X): the time is stored with the text of such a value beside it
+    if (attr.type == B_TIME_TYPE && sen::timeattr::Find(attr.name.String()) != NULL)
+        return sen::timeattr::Store(node, attr.name.String(), text);
+
     BString value(text);
     if (attr.type != B_STRING_TYPE)
         value.Trim();
@@ -363,7 +423,12 @@ status_t StoreAttribute(BNode& node, const ShojiAttribute& attr, const char* tex
     // an empty value is no value: do not leave empty attributes behind
     if (value.IsEmpty() && attr.type != B_BOOL_TYPE) {
         status_t status = node.RemoveAttr(attr.name.String());
-        return status == B_ENTRY_NOT_FOUND ? B_OK : status;
+        if (status == B_ENTRY_NOT_FOUND)
+            status = B_OK;
+        // how a thing repeats: no words say that it does not repeat (SenRecurrence.h)
+        if (status == B_OK && sen::recurrence::IsWordsAttribute(attr.name.String()))
+            sen::recurrence::SyncFromText(node, "");
+        return status;
     }
 
     std::vector<uint8> data;
@@ -375,7 +440,12 @@ status_t StoreAttribute(BNode& node, const ShojiAttribute& attr, const char* tex
     ssize_t written = node.WriteAttr(attr.name.String(), attr.type, 0, data.data(), data.size());
     if (written < 0)
         return (status_t)written;
-    return written == (ssize_t)data.size() ? B_OK : B_IO_ERROR;
+    if (written != (ssize_t)data.size())
+        return B_IO_ERROR;
+    // how a thing repeats is said in words (Repeats) and as a rule that programs read: the rule follows the words (SenRecurrence.h)
+    if (sen::recurrence::IsWordsAttribute(attr.name.String()))
+        sen::recurrence::SyncFromText(node, value.String());
+    return B_OK;
 }
 
 // --- snapshots
@@ -450,6 +520,10 @@ bool GetControlValue(BView* view, BString* text)
         *text = date->DateText();
         return true;
     }
+    if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view)) {
+        *text = dateTime->DateTimeText();
+        return true;
+    }
     return false;
 }
 
@@ -475,10 +549,18 @@ bool SetControlValue(BView* view, const char* text)
     if (BCheckBox* checkBox = dynamic_cast<BCheckBox*>(view)) {
         checkBox->SetValue(strcmp(text, "1") == 0 ? B_CONTROL_ON : B_CONTROL_OFF);
         return true;
-    }    if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
+    }
+    if (ShojiDateTimeControl* dateTime = dynamic_cast<ShojiDateTimeControl*>(view)) {
+        // (a value that is not a day or a time (a fuzzy one) stays out: the control only holds what it can show)
+        dateTime->SetDateTimeText(text);
+        return true;
+    }
+    if (ShojiDateControl* date = dynamic_cast<ShojiDateControl*>(view)) {
         // (a value that is not a date stays out: the control only holds dates)
         if (ShojiDateControl::IsDateText(text) && date->DateText() != text)
             date->SetDateText(text);
+        else if (text[0] == '\0' && date->Unsettable())
+            date->SetUnset();		// (the day was removed, here or elsewhere)
         return true;
     }
     return false;

@@ -10,6 +10,7 @@
 #include <Font.h>
 #include <LayoutUtils.h>
 #include <Messenger.h>
+#include <MimeType.h>
 #include <Node.h>
 #include <Roster.h>
 #include <TextControl.h>
@@ -23,7 +24,13 @@
 #include <sen/SenOntoSpatial.h>
 
 #include <string.h>
+#include <Catalog.h>
 
+#undef B_TRANSLATION_CONTEXT
+#define B_TRANSLATION_CONTEXT "ShojiLinkLabel"
+
+
+static const char* const kFileTypesSignature = "application/x-vnd.Haiku-FileTypes";
 static const char* const kPlaceEnricherSignature = "application/x-vnd.sen-plugin.sen-labs.place-enricher";
 
 
@@ -78,12 +85,14 @@ FindLinkedPlace(const entry_ref& file, const BString& text, entry_ref* place)
 LinkKind
 LinkKindOf(const char* attribute)
 {
-    if (strcmp(attribute, "foaf:homepage") == 0)
+    if (strcmp(attribute, "foaf:homepage") == 0 || strcmp(attribute, "schema:url") == 0 || strcmp(attribute, "SEN:meetingUrl") == 0)
         return kWebLink;
     if (strcmp(attribute, "foaf:mbox") == 0)
         return kMailLink;
-    if (strcmp(attribute, "schema:homeLocation") == 0)
+    if (strcmp(attribute, "schema:homeLocation") == 0 || strcmp(attribute, "schema:location") == 0)
         return kPlaceLink;
+    if (strcmp(attribute, sen::attr::kType) == 0)
+        return kTypeLink;
     return kNoLink;
 }
 
@@ -125,7 +134,7 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
             value.Prepend("https://");
         BUrl url(value, true);
         if (!url.IsValid()) {
-            (new BAlert("link", "This is not an address that a web browser can open.", "OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
+            (new BAlert("link", B_TRANSLATE("This is not an address that a web browser can open."), B_TRANSLATE("OK"), NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
             return B_BAD_VALUE;
         }
         return url.OpenWithPreferredApplication();
@@ -141,12 +150,30 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
             value.Remove(0, 7);
         value.Trim();
         if (value.FindFirst('@') <= 0) {
-            (new BAlert("link", "This is not an e-mail address.", "OK", NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
+            (new BAlert("link", B_TRANSLATE("This is not an e-mail address."), B_TRANSLATE("OK"), NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
             return B_BAD_VALUE;
         }
         value.Prepend("mailto:");
         BUrl url(value, true);
         return url.OpenWithPreferredApplication();
+    }
+
+    if (kind == kTypeLink) {
+        // the SEN server shows the type in FileTypes: the one of SEN if it is installed and wanted (a setting), else the one of Haiku (-type). One place decides, as for the other links to types.
+        BMessenger server(sen::kServerSignature);
+        if (server.IsValid()) {
+            BMessage open(sen::cmd::kUiOpenType);
+            open.AddString(sen::key::kType, value.String());
+            return server.SendMessage(&open);
+        }
+        // (no server: the FileTypes of Haiku shows the type when it starts: FileTypes -type <MIME type>; one that runs already is only brought to the front, see docs/haiku-issues.md)
+        const char* arguments[] = { "-type", value.String() };
+        status_t result = be_roster->Launch(kFileTypesSignature, 2, arguments);
+        if (result == B_ALREADY_RUNNING)
+            result = B_OK;
+        if (result != B_OK)
+            (new BAlert("link", B_TRANSLATE("The FileTypes preferences could not be started."), B_TRANSLATE("OK"), NULL, NULL, B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
+        return result;
     }
 
     if (kind == kPlaceLink) {
@@ -156,7 +183,7 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
         // the enricher of places is asked for the place of that name (it chooses if there are several, as it does for any file), makes it a file of its own and relates this one to it
         entry_ref plugin;
         if (be_roster->FindApp(kPlaceEnricherSignature, &plugin) != B_OK) {
-            (new BAlert("link", "The place enricher (SEN Spaces) is not installed: it looks the place up. Install the package sen_plugin_place_enricher.", "OK", NULL, NULL,
+            (new BAlert("link", B_TRANSLATE("The place enricher (SEN Spaces) is not installed: it looks the place up. Install the package sen_plugin_place_enricher."), B_TRANSLATE("OK"), NULL, NULL,
                 B_WIDTH_AS_USUAL, B_WARNING_ALERT))->Go(NULL);
             return B_NAME_NOT_FOUND;
         }

@@ -50,6 +50,9 @@ const time_t kTileLifetime = 14 * 24 * 3600;
 const uint32 kTileArrived = 'mTle';
 const bigtime_t kTileTimeout = 5 * 1000000LL;			// a server that does not answer in this time is given up for the tile (the standard map is asked); the client waits 20 s by default
 const bigtime_t kServerPause = 60 * 1000000LL;			// ... and is not asked for the other tiles for this long
+const time_t kMissingLifetime = 7 * 24 * 3600;		// a tile that the server of a style does not have (404: the Humanitarian server has none of many areas) is not asked for again for this long
+const int kMissingStreak = 3;							// this many tiles in a row that a style does not have: the server has nothing of this area, the others are not asked for ...
+const bigtime_t kSparsePause = 30 * 1000000LL;			// ... this long (then the standard map is asked at once, without the detour)
 const int kFetchThreads = 2;							// (the tile usage policy of OpenStreetMap allows two connections)
 const uint32 kStyleChosen = 'mSty';
 const uint32 kSpin = 'mSpn';
@@ -76,13 +79,36 @@ bool ParseDegrees(const BMessage* values, const char* name, double* value)
     return end != text.String();
 }
 
-bool TilePath(const Style& style, int zoom, int x, int y, BPath* path)
+bool TilePath(const Style& style, int zoom, int x, int y, BPath* path, const char* extension = "png")
 {
     if (find_directory(B_USER_CACHE_DIRECTORY, path) != B_OK || path->Append("shoji/tiles") != B_OK || path->Append(style.id) != B_OK)
         return false;
     BString name;
-    name << zoom << "/" << x << "/" << y << ".png";
+    name << zoom << "/" << x << "/" << y << "." << extension;
     return path->Append(name.String()) == B_OK;
+}
+
+/** whether the file is there and was made less than the lifetime ago */
+bool IsFresh(const BPath& path, time_t lifetime)
+{
+    BEntry entry(path.Path());
+    time_t modified;
+    return entry.InitCheck() == B_OK && entry.Exists() && entry.GetModificationTime(&modified) == B_OK && time(NULL) - modified < lifetime;
+}
+
+/** the server of the style answered that it has no tile for this place (kept as an empty file `y.missing`: the tile is not asked for again at every opening of the map) */
+bool IsMissing(const Style& style, int zoom, int x, int y)
+{
+    BPath path;
+    return TilePath(style, zoom, x, y, &path, "missing") && IsFresh(path, kMissingLifetime);
+}
+
+void MarkMissing(const Style& style, int zoom, int x, int y)
+{
+    BPath path, folder;
+    if (!TilePath(style, zoom, x, y, &path, "missing") || path.GetParent(&folder) != B_OK || create_directory(folder.Path(), 0755) != B_OK)
+        return;
+    BFile file(path.Path(), B_WRITE_ONLY | B_CREATE_FILE | B_ERASE_FILE);	// (written again: the date is that of the last answer)
 }
 
 }   // namespace
@@ -100,6 +126,7 @@ struct PlaceMapView::Fetcher {
     int                 workers = 0;
     const sen::mapstyles::Style* downStyle = NULL;	// a style whose server did not answer: it is not asked until downUntil, the tiles come from the standard map
     bigtime_t           downUntil = 0;
+    int                 missingStreak = 0;			// tiles in a row that the style does not have
 
     Fetcher() : lock("tile fetcher") {}
 };
@@ -146,30 +173,52 @@ static int32 FetchThread(void* data)
             next = fetcher->queue.front();
             fetcher->queue.pop_front();
         }
-        // (the style that was chosen; if its server does not answer, the standard map is asked for this tile)
+        // (the style that was chosen; if its server does not answer or has no tile for the place, the standard map is asked for this tile)
         bool got = false;
+        bool fresh = false;		// (the tile is in the cache already: nothing to tell the view)
         const Style* chain[2] = { next.style, FallbackStyle() };
         bool skipFirst;
         {
             BAutolock locker(fetcher->lock);
             skipFirst = fetcher->downStyle == next.style && system_time() < fetcher->downUntil && chain[1] != chain[0];
         }
+        // (a tile that the server was found not to have is not asked for again for a week)
+        if (!skipFirst && chain[1] != chain[0] && IsMissing(*chain[0], next.zoom, next.x, next.y))
+            skipFirst = true;
         for (int i = skipFirst ? 1 : 0; i < 2 && !got; i++) {
             if (i == 1 && chain[1] == chain[0])
                 break;
             BPath path;
             if (!TilePath(*chain[i], next.zoom, next.x, next.y, &path))
                 continue;
+            // (the standard map as the replacement of a style: its tile is not fetched again while the one in the cache is young)
+            if (i == 1 && IsFresh(path, kTileLifetime)) {
+                got = true;
+                fresh = true;
+                break;
+            }
             const status_t status = FetchTile(*chain[i], next.zoom, next.x, next.y, path);
             got = status == B_OK;
-            if (i == 0 && status != B_OK && status != B_ENTRY_NOT_FOUND) {
+            if (i == 0 && status == B_ENTRY_NOT_FOUND) {
+                // (the server has no tile of this place: remembered, and if it has none of the whole area the next tiles do not try it)
+                MarkMissing(*chain[0], next.zoom, next.x, next.y);
+                BAutolock locker(fetcher->lock);
+                if (++fetcher->missingStreak >= kMissingStreak && chain[1] != chain[0]) {
+                    fetcher->downStyle = next.style;
+                    fetcher->downUntil = system_time() + kSparsePause;
+                    fetcher->missingStreak = 0;
+                }
+            } else if (i == 0 && status == B_OK) {
+                BAutolock locker(fetcher->lock);
+                fetcher->missingStreak = 0;
+            } else if (i == 0 && status != B_OK) {
                 // (a server that does not answer: the tiles that are still to come do not wait for it again)
                 BAutolock locker(fetcher->lock);
                 fetcher->downStyle = next.style;
                 fetcher->downUntil = system_time() + kServerPause;
             }
         }
-        if (got) {
+        if (got && !fresh) {
             BMessage arrived(kTileArrived);
             arrived.AddInt32("zoom", next.zoom);
             arrived.AddInt32("x", next.x);
@@ -460,7 +509,7 @@ void PlaceMapView::_Layout()
 
 /**
  * The tile from the memory, else from the cache of the disk (of the style that was chosen, else of the standard map; a tile that is old or that is only of the standard map is asked for
- * again, and shown until the new one is here), else it is asked for. NULL if there is none yet. @p primary tells whether the tile is one of the style that was chosen.
+ * again, and shown until the new one is here, unless the server of the style was found not to have it: see IsMissing), else it is asked for. NULL if there is none yet. @p primary tells whether the tile is one of the style that was chosen.
  */
 BBitmap* PlaceMapView::_TileBitmap(int zoom, int x, int y, bool* primary)
 {
@@ -489,7 +538,11 @@ BBitmap* PlaceMapView::_TileBitmap(int zoom, int x, int y, bool* primary)
         bitmap = BTranslationUtils::GetBitmap(path.Path());
         if (bitmap != NULL) {
             isPrimary = i == 0;
-            stale = !isPrimary || entry.GetModificationTime(&modified) != B_OK || time(NULL) - modified >= kTileLifetime;
+            const bool young = entry.GetModificationTime(&modified) == B_OK && time(NULL) - modified < kTileLifetime;
+            stale = !isPrimary || !young;
+            // (a tile of the standard map for a place that the chosen style does not have is as good as it gets: it is asked for again when the style might have it)
+            if (!isPrimary && young && IsMissing(*chain[0], zoom, x, y))
+                stale = false;
         }
     }
     if (bitmap != NULL) {
