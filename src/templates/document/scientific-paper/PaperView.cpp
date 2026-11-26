@@ -22,6 +22,7 @@ PaperView::PaperView() : FormView("Paper View") {
     AddField("schema:contentUrl", B_TRANSLATE("PDF"));
     AddField("SEN:oaStatus", B_TRANSLATE("Open access"));
     AddField("SEN:citationCount", B_TRANSLATE("Citations"));
+    AddField("META:TYPE", B_TRANSLATE("Semantic Type"));
     Finish();
 }
 

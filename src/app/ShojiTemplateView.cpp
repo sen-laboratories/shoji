@@ -286,9 +286,9 @@ static BView* UpgradeToDate(BView* view, const ShojiAttribute& attr, const char*
 
 // The label of a field that links somewhere (the homepage, the location) is a link: the label view of the first column is replaced, in its place, by one that is shown and
 // acts as a link while the field has a text (see ShojiLinkLabel). A template that has a label of another kind is left alone.
-static void UpgradeToLink(BView* view, const ShojiAttribute& attr, std::map<BGridLayout*, FormRows>& forms)
+static void UpgradeToLink(BView* view, const ShojiAttribute& attr, const char* mimeType, std::map<BGridLayout*, FormRows>& forms)
 {
-    if (shoji::LinkKindOf(attr.name.String()) == shoji::kNoLink)
+    if (shoji::LinkKindOf(attr.name.String(), mimeType) == shoji::kNoLink)
         return;
     BView* parent = view->Parent();
     BGridLayout* grid = parent != NULL ? dynamic_cast<BGridLayout*>(parent->GetLayout()) : NULL;
@@ -331,7 +331,7 @@ status_t ShojiTemplateView::Populate(const ShojiAttributeList& attrs, const BMes
             view = UpgradeToDate(view, attr, text.String(), forms);
         }
         if (!attr.list.isList)
-            UpgradeToLink(view, attr, forms);
+            UpgradeToLink(view, attr, fMimeType.String(), forms);
         if (!shoji::SetControlValue(view, text.String()))
             continue;
 

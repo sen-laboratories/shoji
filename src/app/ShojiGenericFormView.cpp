@@ -94,7 +94,7 @@ status_t ShojiGenericFormView::Populate(const ShojiAttributeList& attrs, const B
             textControl->TextView()->SetExplicitMinSize(BSize(be_plain_font->StringWidth("M") * 20, B_SIZE_UNSET));
             textControl->TextView()->SetExplicitMaxSize(BSize(B_SIZE_UNLIMITED, B_SIZE_UNSET));
             if (shoji::LinkKindOf(attr.name.String()) != shoji::kNoLink)
-                layout->AddView(new ShojiLinkLabel(attr.name.String(), attr.label.String()), 0, row);		// (a link while the field has a text: the type opens in FileTypes)
+                layout->AddView(new ShojiLinkLabel(attr.name.String(), attr.label.String(), false), 0, row);		// (a link while the field has a text: the type opens in FileTypes)
             else
                 layout->AddItem(textControl->CreateLabelLayoutItem(), 0, row);
             layout->AddItem(textControl->CreateTextViewLayoutItem(), 1, row);

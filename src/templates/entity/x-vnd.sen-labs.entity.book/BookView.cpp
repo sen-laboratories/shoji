@@ -18,6 +18,7 @@ BookView::BookView() : FormView("Book View") {
     AddField("dc:date", B_TRANSLATE("Date"));
     AddField("dc:language", B_TRANSLATE("Language"));
     AddField("dc:subject", B_TRANSLATE("Subjects"));
+    AddField("META:TYPE", B_TRANSLATE("Semantic Type"));
     Finish();
 }
 

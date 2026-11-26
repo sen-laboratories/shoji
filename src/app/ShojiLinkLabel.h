@@ -15,12 +15,15 @@ enum LinkKind {
     kNoLink,
     kWebLink,       ///< the text is an address: it opens in the web browser of the user
     kMailLink,      ///< the text is an e-mail address: a new message to it is started in the mail program of the user
-    kPlaceLink,     ///< the text is the name of a place: the enricher of places looks it up, makes the place and relates the file to it
+    kPlaceLink,     ///< the text is the name of a place: the enricher of places looks it up (once), makes the place and relates the file to it; the place opens in a window of Shoji
     kTypeLink       ///< the text is a MIME type (the semantic type, META:TYPE): it is shown in the FileTypes preferences
 };
 
-/** The attributes that have a link label (a later version can read this from the ontology). */
-LinkKind LinkKindOf(const char* attribute);
+/**
+ * The attributes that have a link label (a later version can read this from the ontology): the same ones in every form, so that a homepage, an e-mail address, a place and a type are
+ * followed in the same way wherever they stand. @p mimeType is the type that the form is for, if it is known: the city of a place is the place itself and no link to one.
+ */
+LinkKind LinkKindOf(const char* attribute, const char* mimeType = NULL);
 
 /**
  * What a click on the label of @p attribute does for the text of its field; @p file is the file that the form shows. For a place that was looked up before, the place is opened; if it has to be
@@ -45,7 +48,8 @@ class ShojiLinkLabel : public BView {
     public:
         enum { kClicked = 'SJlk' };
 
-                            ShojiLinkLabel(const char* attribute, const char* text);
+                            /** @param rightAligned the label ends at the field (the templates, whose labels are all right-aligned); else it starts at the left edge (the generated form) */
+                            ShojiLinkLabel(const char* attribute, const char* text, bool rightAligned = true);
 
         virtual void        AttachedToWindow();
         virtual void        Draw(BRect updateRect);
@@ -64,4 +68,5 @@ class ShojiLinkLabel : public BView {
         BString             fText;
         bool                fHover;
         bool                fWasActive;
+        bool                fRightAligned;
 };

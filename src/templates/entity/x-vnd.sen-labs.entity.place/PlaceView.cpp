@@ -42,6 +42,7 @@ PlaceView::PlaceView(bool withType) : BGroupView(withType ? "Place View" : "Loca
     // the picture is credited as its author asks
     form->AddField("schema:creditText", B_TRANSLATE("Picture credit"));
     form->AddField("schema:license", B_TRANSLATE("Picture license"));
+    form->AddField("META:TYPE", B_TRANSLATE("Semantic Type"));
     form->Finish();
     AddChild(new PlaceMapView());
 }

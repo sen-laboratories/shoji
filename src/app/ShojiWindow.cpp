@@ -32,6 +32,7 @@
 #include <Volume.h>
 #include <unistd.h>
 
+#include <sen/SenAttributes.h>
 #include <sen/SenStripeDialog.h>
 
 #include <string.h>
@@ -364,7 +365,7 @@ void ShojiWindow::MessageReceived(BMessage* message)
             BTextControl* field = message->FindString("attribute", &name) == B_OK ? dynamic_cast<BTextControl*>(FindControl(name)) : NULL;
             if (field != NULL) {
                 bool lookupStarted = false;
-                shoji::OpenLink(shoji::LinkKindOf(name), field->Text(), fRef, &lookupStarted);
+                shoji::OpenLink(shoji::LinkKindOf(name, fMimeType.String()), field->Text(), fRef, &lookupStarted);
                 // the place enricher works on its own: when the relation to the place appears in the file, the place is opened (the feedback that it was found and linked)
                 fPendingPlace = lookupStarted ? field->Text() : "";
             }
@@ -497,6 +498,18 @@ status_t ShojiWindow::LoadAttributes(const BMessage* mimeAttrInfo, const BMessag
     if (!declared)
         shoji::AttributesOfFile(node, &fAttrs);
 
+    // every file has a semantic type to show (a template names the row; the generated form shows it if the type declares it): META:TYPE
+    const bool declaresType = std::any_of(fAttrs.begin(), fAttrs.end(), [](const ShojiAttribute& attr) { return attr.name == sen::attr::kType; });
+    if (!declaresType) {
+        ShojiAttribute semantic;
+        semantic.name = sen::attr::kType;
+        semantic.label = B_TRANSLATE("Semantic Type");
+        semantic.type = B_MIME_STRING_TYPE;
+        semantic.viewable = false;
+        semantic.editable = true;
+        fAttrs.push_back(semantic);
+    }
+
     for (ShojiAttribute& attr : fAttrs) {
         BString text;
         result = shoji::LoadAttribute(node, &attr, &text);
@@ -504,6 +517,11 @@ status_t ShojiWindow::LoadAttributes(const BMessage* mimeAttrInfo, const BMessag
             fValues.AddString(attr.name.String(), text);
         } else if (result != B_ENTRY_NOT_FOUND) {
             // unsupported or unreadable value: shown, but never overwritten
+            attr.editable = false;
+        }
+        // an entity that was never given a semantic type is what its own type says (a person, an institution): that is shown, as it is, and not stored
+        if (attr.name == sen::attr::kType && !fValues.HasString(attr.name.String()) && fMimeType.StartsWith("entity/")) {
+            fValues.AddString(attr.name.String(), fMimeType);
             attr.editable = false;
         }
         if (!shoji::IsSupportedType(attr.type) || !fWritable)

@@ -34,6 +34,7 @@ EventView::EventView() : FormView("Event View") {
     AddField("schema:url", B_TRANSLATE("URL"));
     AddField("SEN:meetingUrl", B_TRANSLATE("Meeting URL"));
     AddField("SEN:meetingType", B_TRANSLATE("Meeting Type"));
+    AddField("META:TYPE", B_TRANSLATE("Semantic Type"));
     Finish();
 }
 

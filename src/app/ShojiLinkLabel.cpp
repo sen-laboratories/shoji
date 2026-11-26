@@ -83,13 +83,17 @@ FindLinkedPlace(const entry_ref& file, const BString& text, entry_ref* place)
 
 
 LinkKind
-LinkKindOf(const char* attribute)
+LinkKindOf(const char* attribute, const char* mimeType)
 {
-    if (strcmp(attribute, "foaf:homepage") == 0 || strcmp(attribute, "schema:url") == 0 || strcmp(attribute, "SEN:meetingUrl") == 0)
+    if (strcmp(attribute, "foaf:homepage") == 0 || strcmp(attribute, "schema:url") == 0 || strcmp(attribute, "schema:contentUrl") == 0 || strcmp(attribute, "SEN:meetingUrl") == 0)
         return kWebLink;
     if (strcmp(attribute, "foaf:mbox") == 0)
         return kMailLink;
     if (strcmp(attribute, "schema:homeLocation") == 0 || strcmp(attribute, "schema:location") == 0)
+        return kPlaceLink;
+    // the city of a person, an institution or anything else that is somewhere is a place of its own; the city of a place is the data of that place
+    if (strcmp(attribute, "schema:addressLocality") == 0 && (mimeType == NULL || (strcmp(mimeType, "entity/x-vnd.sen-labs.entity.place") != 0
+            && strcmp(mimeType, "entity/x-vnd.sen-labs.entity.location") != 0)))
         return kPlaceLink;
     if (strcmp(attribute, sen::attr::kType) == 0)
         return kTypeLink;
@@ -204,16 +208,17 @@ OpenLink(LinkKind kind, const char* text, const entry_ref& file, bool* lookupSta
 }   // namespace shoji
 
 
-ShojiLinkLabel::ShojiLinkLabel(const char* attribute, const char* text)
+ShojiLinkLabel::ShojiLinkLabel(const char* attribute, const char* text, bool rightAligned)
     :
     BView(NULL, B_WILL_DRAW | B_PULSE_NEEDED),
     fAttribute(attribute),
     fText(text),
     fHover(false),
-    fWasActive(false)
+    fWasActive(false),
+    fRightAligned(rightAligned)
 {
     SetViewUIColor(B_PANEL_BACKGROUND_COLOR);
-    SetExplicitAlignment(BAlignment(B_ALIGN_RIGHT, B_ALIGN_VERTICAL_CENTER));
+    SetExplicitAlignment(BAlignment(rightAligned ? B_ALIGN_RIGHT : B_ALIGN_LEFT, B_ALIGN_VERTICAL_CENTER));
 }
 
 
@@ -252,7 +257,7 @@ ShojiLinkLabel::Draw(BRect)
     font_height height;
     font.GetHeight(&height);
     const float width = font.StringWidth(fText.String());
-    DrawString(fText.String(), BPoint(Bounds().right - width,
+    DrawString(fText.String(), BPoint(fRightAligned ? Bounds().right - width : 0,
         floorf((Bounds().Height() - (height.ascent + height.descent)) / 2 + height.ascent)));
 }
 

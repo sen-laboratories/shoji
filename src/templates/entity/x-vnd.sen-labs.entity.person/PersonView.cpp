@@ -30,6 +30,7 @@ PersonView::PersonView() : FormView("Person View") {
     AddField("schema:sameAs", B_TRANSLATE("Same as"));
     AddField("schema:creditText", B_TRANSLATE("Photo credit"));
     AddField("schema:license", B_TRANSLATE("Photo license"));
+    AddField("META:TYPE", B_TRANSLATE("Semantic Type"));
     Finish();
 }
 

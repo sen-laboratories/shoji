@@ -30,6 +30,7 @@
 #include "../templates/application/x-person/ContactView.h"
 #include "../templates/document/scientific-paper/PaperView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.book/BookView.h"
+#include "../templates/entity/x-vnd.sen-labs.entity.institution/InstitutionView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.person/PersonView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.event/EventView.h"
 #include "../templates/entity/x-vnd.sen-labs.entity.place/PlaceView.h"
@@ -54,6 +55,7 @@ struct TemplateSpec {
 
 BView* CreateContactView() { return new ContactView(); }
 BView* CreateBookView() { return new BookView(); }
+BView* CreateInstitutionView() { return new InstitutionView(); }
 BView* CreatePersonView() { return new PersonView(); }
 BView* CreatePaperView() { return new PaperView(); }
 BView* CreatePlaceView() { return new PlaceView(true); }
@@ -63,6 +65,7 @@ BView* CreateEventView() { return new EventView(); }
 const TemplateSpec kTemplates[] = {
     { "application/x-person", CreateContactView },
     { "entity/x-vnd.sen-labs.entity.book", CreateBookView },
+    { "entity/x-vnd.sen-labs.entity.institution", CreateInstitutionView },
     { "entity/x-vnd.sen-labs.entity.person", CreatePersonView },
     { "document/scientific-paper", CreatePaperView },
     { "entity/x-vnd.sen-labs.entity.place", CreatePlaceView },
